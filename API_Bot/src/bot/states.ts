@@ -1,13 +1,19 @@
 // src/bot/states.ts
-// Conversation state management via Prisma
+// Conversation state management via Prisma + Turso (libSQL)
 
+import { createClient } from "@libsql/client"
+import { PrismaLibSQL } from "@prisma/adapter-libsql"
 import { PrismaClient } from "../generated/prisma/index.js"
 import type { ConversationData } from "../types/index.ts"
 import { env } from "../utils/env.ts"
 
-export const db = new PrismaClient({
-  datasources: { db: { url: `file:${env.DB_DIR}/liebetag.db` } },
+const libsql = createClient({
+  url:       env.DATABASE_URL,
+  authToken: env.TURSO_AUTH_TOKEN,
 })
+
+const adapter = new PrismaLibSQL(libsql)
+export const db = new PrismaClient({ adapter })
 
 export async function getState(phone: string): Promise<{ state: string; data: ConversationData; role: string }> {
   const conv = await db.conversation.findUnique({ where: { phone } })

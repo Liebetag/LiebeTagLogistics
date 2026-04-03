@@ -251,7 +251,6 @@ app.get("/riders/:phone/balance", requireApiKey, async c => {
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function main() {
-  await db.$executeRaw`PRAGMA journal_mode=WAL`.catch(() => {})
 
   // Login to Cantrack then start background polling every 30s
   const loginOk = await cantrack.login()
