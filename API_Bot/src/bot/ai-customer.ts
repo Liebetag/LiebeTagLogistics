@@ -4,7 +4,7 @@
 // continue to be handled by the existing delivery/errand flow handlers.
 
 import { sendText } from "../services/evolution.ts"
-import { getState, setState, updateData, getUserName, db } from "./states.ts"
+import { getState, setState, updateData, getUserName, setUserName, db } from "./states.ts"
 import { geocode, reverseGeocode, inAbuja } from "../services/geocoding.ts"
 import { calculateFare, calculateErrandFare } from "../pricing/index.ts"
 import { createPaymentLink } from "../services/paystack.ts"
@@ -78,11 +78,23 @@ export async function handleAICustomer(
   const history: AIMessage[] = ((data.aiMessages ?? []) as AIMessage[]).slice(-MAX_HISTORY)
   history.push({ role: "user", content: text })
 
-  // ── Call Claude ─────────────────────────────────────────────────────────
-  const result = await processAIMessage(history, buildCollectedSummary(data))
+  // ── Call Claude (with history suggestions injected into summary) ────────
+  const summary = buildCollectedSummary(data) + "\n" + await buildHistorySummary(phone)
+  const result  = await processAIMessage(history, summary)
 
   // Add Claude's reply to history
   history.push({ role: "assistant", content: result.reply })
+
+  // ── Handle name-change intent immediately ───────────────────────────────
+  if (result.intent === "update_profile" && result.fields.newName) {
+    const formatted = result.fields.newName.trim().replace(/\b\w/g, c => c.toUpperCase())
+    await setUserName(phone, formatted)
+    await sendText(phone, result.reply)
+    // Don't discard existing conversation data — just save updated history
+    const nd = { ...data, aiMessages: history as unknown as ConversationData["aiMessages"] }
+    await setState(phone, state === "AI_CONFIRM" ? "AI_CONFIRM" : "AI_CHAT", nd)
+    return
+  }
 
   // ── Merge extracted fields → geocode new addresses ─────────────────────
   let newData = await mergeFields(data, result.fields)
@@ -213,6 +225,41 @@ async function mergeFields(
   return d
 }
 
+// ─── Build customer history hints for Claude context ────────────────────────
+async function buildHistorySummary(phone: string): Promise<string> {
+  try {
+    const past = await db.order.findMany({
+      where:   { senderPhone: phone },
+      orderBy: { createdAt: "desc" },
+      take:    10,
+      select:  { recipientName: true, recipientPhone: true, dropoffJson: true },
+    })
+    if (!past.length) return ""
+
+    // Dedupe recipients by phone
+    const seen  = new Map<string, { name: string; addresses: string[] }>()
+    for (const o of past) {
+      if (!o.recipientPhone) continue
+      let dropAddr = ""
+      try { dropAddr = (JSON.parse(o.dropoffJson) as any).address ?? "" } catch {}
+      const entry: { name: string; addresses: string[] } = seen.get(o.recipientPhone) ?? { name: o.recipientName ?? "", addresses: [] }
+      if (dropAddr && !entry.addresses.includes(dropAddr)) entry.addresses.push(dropAddr)
+      if (!entry.name && o.recipientName) entry.name = o.recipientName
+      seen.set(o.recipientPhone, entry)
+    }
+
+    if (!seen.size) return ""
+    const lines = ["Frequent recipients (from this customer's history):"]
+    for (const [recPhone, info] of seen) {
+      const addrs = info.addresses.slice(0, 2).map(a => a.slice(0, 50)).join(" / ")
+      lines.push(`- ${info.name || "Unknown"} · ${recPhone}${addrs ? ` · Previously delivered to: ${addrs}` : ""}`)
+    }
+    return lines.join("\n")
+  } catch {
+    return ""
+  }
+}
+
 // ─── Build collected-data summary for Claude context ────────────────────────
 function buildCollectedSummary(data: ConversationData): string {
   const lines: string[] = []
@@ -338,8 +385,8 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
       `👤 Recipient: ${data.recipientName}\n\n` +
       `💰 Fare: *₦${fare.totalFare.toLocaleString()}* (cash to rider)\n` +
       `_${fare.breakdown}_\n\n` +
-      `🔍 *Finding your rider now...*\n` +
-      `_Type your tracking number anytime to check status_`
+      `🔗 Track order: ${env.APP_URL}/track/${orderRef}\n\n` +
+      `🔍 *Finding your rider now...*`
     )
     await dispatchAllRiders(phone, orderRef, newData, fare, pickup, dropoff, "cash", userName)
   } else {
@@ -366,6 +413,7 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
       `👤 Recipient: ${data.recipientName}\n\n` +
       `💰 *Total: ₦${fare.totalFare.toLocaleString()}*\n` +
       `_${fare.breakdown}_\n\n` +
+      `🔗 Track order: ${env.APP_URL}/track/${orderRef}\n\n` +
       `💳 *Pay here:*\n${link.paymentUrl}\n\n` +
       `⏳ _Link expires in 30 minutes_\n` +
       `_Type_ *resend* _if you need a new link_`
@@ -459,6 +507,7 @@ async function executeErrand(phone: string, userName: string, data: Conversation
       `📝 Task: ${data.taskDescription.slice(0, 100)}\n` +
       `⏰ Deadline: ${data.errandDeadline ?? "No deadline"}\n\n` +
       `💰 Errand fee: *₦${fare.totalFee.toLocaleString()}* (cash)\n\n` +
+      `🔗 Track: ${env.APP_URL}/track/${errandRef}\n\n` +
       `🔍 *Finding a runner...*`
     )
     await dispatchAllRidersErrand(phone, errandRef, newData, fare)

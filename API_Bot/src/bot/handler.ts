@@ -197,24 +197,36 @@ async function handleRiderPhoto(phone: string, photoId: string) {
 
   if (state === "RIDER_AWAITING_PICKUP_PHOTO") {
     const orderRef     = data.currentOrder?.orderRef ?? data.orderRef ?? ""
-    const orderNumber  = data.pickupOrderNumber ?? ""
     const pickupTime   = new Date().toLocaleTimeString("en-NG", { timeZone: "Africa/Lagos" }) + " WAT"
 
-    await updateData(phone, { pickupPhotoId: photoId, pickupPhotoTime: pickupTime })
+    // Save photo ID to both conversation state AND DB order record
+    await db.order.updateMany({
+      where: { orderRef },
+      data:  { status: "picked_up", pickedUpAt: new Date(), pickupPhotoId: photoId, pickupPhotoTime: pickupTime },
+    })
+    await setState(phone, "RIDER_ON_JOB", { ...data, pickupPhotoId: photoId, pickupPhotoTime: pickupTime })
+
     await sendText(phone,
       `📷 *Photo saved!* ${pickupTime}\n\nPickup confirmed for order \`${orderRef}\`\n\nType *queue* to see your delivery bag.`
     )
 
-    // Complete pickup via DB
-    await db.order.updateMany({ where: { orderRef }, data: { status: "picked_up", pickedUpAt: new Date() } })
-    await setState(phone, "RIDER_ON_JOB", { ...data, pickupPhotoId: photoId, pickupPhotoTime: pickupTime })
-
-    // Notify customer
+    // Notify customer that package has been collected
     const order = await db.order.findFirst({ where: { orderRef } })
     if (order?.senderPhone) {
       await sendText(order.senderPhone,
-        `📦 *Package collected!*\n\nOrder: \`${orderRef}\`\n${pickupTime}\n\nYour rider is on the way to the drop-off.\n\nType *1* to track.`
+        `📦 *Package collected!*\n\nOrder: \`${orderRef}\`\n${pickupTime}\n\n` +
+        `Your rider is heading to the drop-off now.\n\n` +
+        `1. 📍 Track rider\n` +
+        `🔗 View order: ${env.APP_URL}/track/${orderRef}`
       )
+    }
+    if (order?.recipientPhone) {
+      await sendText(order.recipientPhone,
+        `📦 *Your package is on the way!*\n\nOrder: \`${orderRef}\`\n` +
+        `From: ${order.senderName || "Sender"}\n\n` +
+        `Your rider collected the package at ${pickupTime}.\n` +
+        `🔗 Track: ${env.APP_URL}/track/${orderRef}`
+      ).catch(() => {})
     }
   }
 }

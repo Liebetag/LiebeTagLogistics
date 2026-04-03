@@ -26,11 +26,13 @@ export type ExtractedFields = {
   runnerNeedsCash?: boolean
   cashAmount?:      number
   trackRef?:        string
+  // Profile updates
+  newName?:         string
 }
 
 export type AIResult = {
   reply:         string
-  intent:        "delivery" | "errand" | "quote" | "track" | "faq" | "cancel" | "greeting" | "other"
+  intent:        "delivery" | "errand" | "quote" | "track" | "faq" | "cancel" | "greeting" | "update_profile" | "other"
   fields:        ExtractedFields
   action:        "chat" | "confirm" | "execute" | "track"
   missingFields?: string[]
@@ -87,6 +89,8 @@ const SYSTEM = `You are a helpful WhatsApp assistant for *Liebe Tag Logistics* �
 - When user says YES/confirm/proceed to a summary → set action to "execute"
 - When user says NO/change/modify to a summary → set action to "chat" and ask what to change
 - For tracking: extract any reference number (LT-..., ER-..., or 16-digit number) into fields.trackRef
+- **Name change**: if user says anything like "change my name to X", "my name is X", "I go by X", "update my name" → set intent to "update_profile" and fields.newName to the new name. Reply confirming the change.
+- **History suggestions**: if the collected summary includes "Frequent recipients", USE that data to pre-fill recipientName and recipientPhone when the user mentions a familiar address or name. Don't ask for info that's in the history.
 
 ## Response — ALWAYS respond with ONLY valid JSON, no extra text before or after:
 {

@@ -9,6 +9,8 @@ import { db } from "./bot/states.ts"
 import { handleMessage } from "./bot/handler.ts"
 import { cantrack, TRACKERS, registerBroadcast } from "./services/cantrack.ts"
 import { getMediaBase64 } from "./services/evolution.ts"
+import { checkProximityNotifications } from "./services/proximity.ts"
+import { renderTrackingPage } from "./utils/tracking-page.ts"
 import type { GPSLocation } from "./types/index.ts"
 
 const app = new Hono()
@@ -17,13 +19,17 @@ const app = new Hono()
 const { upgradeWebSocket, websocket } = createBunWebSocket()
 const wsClients = new Set<{ send: (data: string) => void }>()
 
-// Register cantrack broadcast → push to all connected dashboard clients
+// Register cantrack broadcast → WebSocket push + proximity notifications
 registerBroadcast((locations: GPSLocation[]) => {
-  if (wsClients.size === 0) return
-  const msg = JSON.stringify({ type: "trackers", data: locations })
-  for (const client of wsClients) {
-    try { client.send(msg) } catch {}
+  // Push to dashboard WebSocket clients
+  if (wsClients.size > 0) {
+    const msg = JSON.stringify({ type: "trackers", data: locations })
+    for (const client of wsClients) {
+      try { client.send(msg) } catch {}
+    }
   }
+  // Proximity alerts (fire-and-forget)
+  checkProximityNotifications(locations).catch(e => console.error("[proximity]", e))
 })
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
@@ -247,6 +253,63 @@ app.get("/riders/:phone/balance", requireApiKey, async c => {
   if (!rider) return c.json({ error: "Rider not found" }, 404)
   const entries = await db.ledgerEntry.findMany({ where: { riderPhone: phone }, orderBy: { createdAt: "desc" }, take: 20 })
   return c.json({ ...rider, recentTrips: entries })
+})
+
+// ─── Public tracking page ─────────────────────────────────────────────────────
+app.get("/track/:ref", async c => {
+  const ref = c.req.param("ref").toUpperCase()
+
+  // Try order first, then errand
+  const order  = await db.order.findFirst({
+    where: { OR: [{ orderRef: ref }, { orderNumber: ref }] },
+  })
+  const errand = !order ? await db.errand.findFirst({
+    where: { OR: [{ errandRef: ref }, { errandNumber: ref }] },
+  }) : null
+
+  const record = order ?? errand
+  if (!record) {
+    return c.html(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width">
+      <title>Not Found</title>
+      <style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;background:#f1f5f9}</style>
+      </head><body><div><h2>❓ Order not found</h2><p style="color:#64748b;margin-top:8px">Check the tracking number and try again.</p>
+      <p style="margin-top:16px;font-size:13px;color:#94a3b8">Liebe Tag Logistics</p></div></body></html>`, 404)
+  }
+
+  // Inject live GPS if rider device is known
+  let riderLat: number | undefined, riderLng: number | undefined, riderSpeed: number | undefined
+  const riderPhone = (record as any).riderPhone
+  if (riderPhone) {
+    const rider = await db.rider.findUnique({ where: { phone: riderPhone }, select: { deviceId: true } })
+    if (rider?.deviceId) {
+      const gps = cantrack.getCache(rider.deviceId)
+      if (gps) {
+        riderLat   = gps.latitude
+        riderLng   = gps.longitude
+        riderSpeed = gps.speedKmh
+      }
+    }
+  }
+
+  const html = renderTrackingPage({ ...(record as any), riderLat, riderLng, riderSpeed })
+  return c.html(html)
+})
+
+// ─── Pickup photo endpoint ─────────────────────────────────────────────────────
+app.get("/order/:ref/photo", async c => {
+  const ref = c.req.param("ref").toUpperCase()
+  const order = await db.order.findFirst({
+    where: { OR: [{ orderRef: ref }, { orderNumber: ref }] },
+    select: { pickupPhotoId: true },
+  })
+  if (!order?.pickupPhotoId) return c.text("No photo available", 404)
+
+  const buf = await getMediaBase64(order.pickupPhotoId)
+  if (!buf) return c.text("Photo unavailable", 503)
+
+  c.header("Content-Type", "image/jpeg")
+  c.header("Cache-Control", "public, max-age=86400")
+  return c.body(buf as unknown as ReadableStream)
 })
 
 // ─── Startup ──────────────────────────────────────────────────────────────────

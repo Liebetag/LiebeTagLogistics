@@ -117,23 +117,21 @@ export async function handleRider(
         )
         return
       }
-      const current    = data.currentOrder as CurrentOrder | undefined
+      const current     = data.currentOrder as CurrentOrder | undefined
       const expectedRef = current?.orderRef ?? data.orderRef ?? ""
       if (expectedRef && order.orderRef.toUpperCase() !== expectedRef.toUpperCase()) {
         await sendText(phone,
           `⚠️ *Wrong package!*\n\nOrder \`${digits}\` belongs to a different delivery.\n` +
-          `Your assigned order is \`${expectedRef}\`.\n\n_Type_ *cancel_ _if there is a problem_`
+          `Your assigned order is \`${expectedRef}\`.\n\n_Type_ *cancel* _if there is a problem_`
         )
         return
       }
       await updateData(phone, { pickupOrderNumber: digits })
-      await setState(phone, "RIDER_AWAITING_PICKUP_PHOTO", data, "rider")
+      await setState(phone, "RIDER_AWAITING_PICKUP_PHOTO", { ...data, pickupOrderNumber: digits }, "rider")
       await sendText(phone,
-        `✅ *Order confirmed:* \`${digits}\`\n\n📷 Now send a *photo* of the package.\n\n` +
-        `_Tap 📎 → Camera or Gallery_\n\nOr type *skip* if you cannot take a photo`
+        `✅ *Order confirmed:* \`${digits}\`\n\n📷 *Send a photo of the package now.*\n\n` +
+        `_Tap 📎 → Camera or Gallery_\n\n⚠️ _Photo is required to proceed_`
       )
-    } else if (["skip", "no photo"].includes(lower)) {
-      await confirmPickupByOrderNumber(phone, data, data.pickupOrderNumber ?? "")
     } else {
       await sendText(phone,
         `❓ Type the *16-digit order number* from the label.\n_Looks like: 20260321XXXXXXXX_\n\n_Type_ *cancel* _if there is a problem_`
@@ -143,11 +141,11 @@ export async function handleRider(
   }
 
   if (state === "RIDER_AWAITING_PICKUP_PHOTO") {
-    if (["skip", "no photo", "no camera"].includes(lower)) {
-      await confirmPickupByOrderNumber(phone, data, data.pickupOrderNumber ?? "")
-    } else {
-      await sendText(phone, "📷 Please send a *photo* of the package.\n\nTap 📎 → Camera\n\nOr type *skip*")
-    }
+    // Photo is mandatory — no skip allowed
+    await sendText(phone,
+      `📷 *Photo is required.*\n\nPlease send a photo of the package before proceeding.\n\n` +
+      `_Tap 📎 → Camera or Gallery_`
+    )
     return
   }
 
@@ -298,7 +296,9 @@ async function riderAccept(phone: string, job: PendingJob, data: ConversationDat
   // Notify customer with rider info
   const riderName = (await db.user.findUnique({ where: { phone } }))?.name ?? "Your rider"
   await sendText(customerPhone,
-    `🏍️ *Rider found!*\n\nOrder: \`${orderRef}\`\nRider: *${riderName}*\n📞 +${phone}\n\nType *1* to track your rider.`
+    `🏍️ *Rider found!*\n\nOrder: \`${orderRef}\`\nRider: *${riderName}* · 📞 +${phone}\n\n` +
+    `Type *1* to track your rider's live location.\n` +
+    `🔗 View order: ${env.APP_URL}/track/${orderRef}`
   )
 
   // Notify receiver too
@@ -467,7 +467,9 @@ async function completeDelivery(phone: string, data: ConversationData) {
     const senderName = (await db.user.findUnique({ where: { phone: customerPhone } }))?.name ?? "there"
     await sendText(customerPhone,
       `✅ *Package delivered!*\n\nHi ${senderName}! Order \`${orderRef}\` delivered.\n` +
-      `Delivered at: *${deliveryTime}*\n\n${quote}\n\nThank you for choosing *Liebe Tag Logistics* 🙏\nType *1* to send another package.`
+      `Delivered at: *${deliveryTime}*\n\n` +
+      `🔗 View receipt: ${env.APP_URL}/track/${orderRef}\n\n` +
+      `${quote}\n\nThank you for choosing *Liebe Tag Logistics* 🙏\nType *1* to send another package.`
     )
     const { resetState } = await import("./states.ts")
     await resetState(customerPhone)
@@ -478,29 +480,45 @@ async function completeDelivery(phone: string, data: ConversationData) {
     const recvName = (await db.user.findUnique({ where: { phone: receiverPhone } }))?.name ?? "there"
     await sendText(receiverPhone,
       `✅ *Package delivered!*\n\nHi ${recvName}! Order \`${orderRef}\` delivered.\n` +
-      `Delivered at: *${deliveryTime}*\n\n${quote}\n\nNeed to send something? Reply *hi*!\n— Liebe Tag Logistics`
+      `Delivered at: *${deliveryTime}*\n\n` +
+      `🔗 Track & receipt: ${env.APP_URL}/track/${orderRef}\n\n` +
+      `${quote}\n\nNeed to send something? Reply *hi*!\n— Liebe Tag Logistics`
     )
   }
 
   await notifyAdmin(`✅ Delivered\nRider: ${phone} | Order: ${orderRef}\nFare: ₦${fareTotal.toLocaleString()} | ${deliveryTime}`)
 
-  // Send rider invoice
+  // Send rider receipt
   try {
     await sendText(phone,
-      `✅ *Delivery complete!*\n\nOrder: \`${orderRef}\`\nYour earnings: *₦${riderCut.toLocaleString()}*\nDelivered: ${deliveryTime}\n\n${quote}`
+      `✅ *Delivery complete!*\n\nOrder: \`${orderRef}\`\nEarnings: *₦${riderCut.toLocaleString()}*\nDelivered: ${deliveryTime}\n\n` +
+      `🔗 Job receipt: ${env.APP_URL}/track/${orderRef}\n\n${quote}`
     )
   } catch {}
 
-  // Remove from queue
-  const newQueue = ((data.queue ?? []) as CurrentOrder[]).filter(q => q.orderRef !== orderRef)
+  // Remove from queue and notify next customer
+  const allQueue = ((data.queue ?? []) as CurrentOrder[]).filter(q => q.orderRef !== orderRef)
   const fresh    = await import("./states.ts").then(m => m.getState(phone))
 
-  if (newQueue.length) {
+  // Notify the next customer in queue that they are up next
+  if (allQueue.length > 0) {
+    const next = allQueue[0]!
+    if (next.customerPhone) {
+      await sendText(next.customerPhone,
+        `🏍️ *Your delivery is next!*\n\nOrder: \`${next.orderRef}\`\n\n` +
+        `Your rider has finished a previous delivery and is now heading to your pickup.\n` +
+        `Expect collection soon — please be ready.\n\n` +
+        `🔗 Track: ${env.APP_URL}/track/${next.orderRef}`
+      ).catch(() => {})
+    }
+  }
+
+  if (allQueue.length) {
     await setState(phone, "RIDER_COLLECTING", {
-      ...fresh.data, queue: newQueue, currentOrder: {},
+      ...fresh.data, queue: allQueue, currentOrder: allQueue[0],
       deliveryCode: "", awaitingDeliveryCode: false, deliverSelectionMode: false,
     }, "rider")
-    await sendText(phone, `🎒 *${newQueue.length} item(s)* still to deliver.\nType *queue* to select next delivery.`)
+    await sendText(phone, `🎒 *${allQueue.length} item(s)* still to deliver.\nType *queue* to view or select next.`)
   } else {
     await setState(phone, "RIDER_IDLE", { deviceId: data.deviceId }, "rider")
     await sendText(phone, `🎉 *All deliveries complete!*\n\nEarnings: ₦${riderCut.toLocaleString()} added.\nType *status* to see your balance.`)
@@ -527,15 +545,28 @@ async function handleCashPayment(phone: string, data: ConversationData) {
 }
 
 async function showQueue(phone: string, data: ConversationData) {
-  const queue = (data.queue ?? []) as CurrentOrder[]
-  if (!queue.length) {
+  const queue   = (data.queue ?? []) as CurrentOrder[]
+  const current = data.currentOrder as CurrentOrder | undefined
+
+  // Build a unified list: currentOrder first, then queue items (de-duped)
+  const allItems: CurrentOrder[] = []
+  if (current?.orderRef) allItems.push(current)
+  for (const q of queue) {
+    if (!allItems.some(x => x.orderRef === q.orderRef)) allItems.push(q)
+  }
+
+  if (!allItems.length) {
     await sendText(phone, "🎒 Your delivery bag is empty.\n\nWaiting for new orders.")
     return
   }
-  let msg = `🎒 *Delivery Bag (${queue.length} items)*\n\n`
-  queue.forEach((item, i) => {
-    msg += `${i+1}. \`${item.orderRef}\`\n   📍 ${item.dropoffAddress.slice(0, 40)}\n   💰 ₦${item.fareTotal.toLocaleString()}\n\n`
+
+  let msg = `🎒 *Delivery Bag (${allItems.length} item${allItems.length !== 1 ? "s" : ""})*\n\n`
+  allItems.forEach((item, i) => {
+    const isActive = item.orderRef === current?.orderRef
+    const tag      = isActive ? " ← *Active*" : ""
+    const type     = item.orderType === "errand" ? "🏃" : "📦"
+    msg += `${i + 1}. ${type} \`${item.orderRef}\`${tag}\n   📍 ${item.dropoffAddress.slice(0, 40)}\n   💰 ₦${item.fareTotal.toLocaleString()}\n\n`
   })
-  msg += "_Type the number to select as current delivery_"
+  msg += "_Type the number to set as active delivery_"
   await sendText(phone, msg)
 }
