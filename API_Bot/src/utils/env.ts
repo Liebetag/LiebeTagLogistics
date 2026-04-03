@@ -12,7 +12,8 @@ const optional = (key: string, fallback = ""): string =>
 
 export const env = {
   PORT:             optional("PORT", "8000"),
-  DATABASE_URL:     optional("DATABASE_URL", "file:./liebetag.db"),
+  DATABASE_URL:     optional("DATABASE_URL", "file:./dev.db"),
+  TURSO_DATABASE_URL: optional("TURSO_DATABASE_URL", ""),
   TURSO_AUTH_TOKEN: optional("TURSO_AUTH_TOKEN", ""),
 
   // Auth

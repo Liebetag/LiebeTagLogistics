@@ -251,6 +251,9 @@ app.get("/riders/:phone/balance", requireApiKey, async c => {
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function main() {
+  // Create all DB tables in Turso if they don't exist
+  const { runMigrations } = await import("./utils/migrate.ts")
+  await runMigrations()
 
   // Login to Cantrack then start background polling every 30s
   const loginOk = await cantrack.login()
