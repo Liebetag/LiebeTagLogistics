@@ -63,8 +63,44 @@ export default function LiveMap() {
 
   useEffect(() => {
     fetchTrackers()
-    const t = setInterval(fetchTrackers, 15_000)
-    return () => clearInterval(t)
+    const t = setInterval(fetchTrackers, 30_000)
+
+    // WebSocket for instant push updates from background poller
+    const base    = (localStorage.getItem("lt_api_url") || "").replace(/^http/, "ws")
+    const apiKey  = localStorage.getItem("lt_api_key") || ""
+    let ws: WebSocket | null = null
+    if (base) {
+      ws = new WebSocket(`${base}/ws/trackers?key=${encodeURIComponent(apiKey)}`)
+      ws.onmessage = e => {
+        try {
+          const msg = JSON.parse(e.data)
+          if (msg.type === "trackers" && Array.isArray(msg.data)) {
+            setTrackers(msg.data)
+            setLastUpdate(new Date())
+            if (!mapInstance.current) return
+            msg.data.forEach((t: any, i: number) => {
+              const color = TRACKER_COLORS[i % TRACKER_COLORS.length]!
+              const icon  = L.divIcon({
+                className: "",
+                html: `<div style="background:${color};width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>`,
+                iconSize: [16, 16], iconAnchor: [8, 8],
+              })
+              if (markers.current.has(t.deviceId)) {
+                markers.current.get(t.deviceId).setLatLng([t.latitude, t.longitude])
+                markers.current.get(t.deviceId).setPopupContent(popupHtml(t, color))
+              } else {
+                const m = L.marker([t.latitude, t.longitude], { icon })
+                  .addTo(mapInstance.current).bindPopup(popupHtml(t, color))
+                markers.current.set(t.deviceId, m)
+              }
+            })
+          }
+        } catch {}
+      }
+      ws.onerror = () => console.warn("[ws] tracker stream disconnected")
+    }
+
+    return () => { clearInterval(t); ws?.close() }
   }, [])
 
   const flyTo = (t: GPSTracker) => {

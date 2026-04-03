@@ -1,16 +1,15 @@
 // src/services/cantrack.ts
-// Cantrack GPS tracker integration
-// Uses GET token-based login (not username/password)
+// Cantrack GPS tracker integration — background polling + WebSocket broadcast
 
 import { env } from "../utils/env.ts"
 import type { GPSLocation } from "../types/index.ts"
 
-const BASE = "https://www.cantrackportal.com"
+const BASE      = "https://www.cantrackportal.com"
 const SCHOOL_ID = env.CANTRACK_SCHOOL_ID
 const CUST_ID   = env.CANTRACK_CUST_ID
 const MDS       = env.CANTRACK_MDS
 
-// All 5 trackers
+// All 5 trackers — device ID → metadata
 export const TRACKERS: Record<string, { label: string; imei: string; sim: string }> = {
   "ec86025d2be54efb96634bd437c56e23": { label: "LT01-TT200583", imei: "868720065061578", sim: "09111848135" },
   "791b7b56bacf4b84a8ff4e7a9c82309a": { label: "LT02-TT201376", imei: "868720065056750", sim: "09111848128" },
@@ -19,80 +18,95 @@ export const TRACKERS: Record<string, { label: string; imei: string; sim: string
   "c35c83a5e069496a80b0e1d3f1878062": { label: "LT05-TT202356", imei: "868720065056487", sim: "09111848129" },
 }
 
+// WebSocket broadcast subscribers — registered by index.ts
+type BroadcastFn = (locations: GPSLocation[]) => void
+let _broadcast: BroadcastFn | null = null
+export function registerBroadcast(fn: BroadcastFn) { _broadcast = fn }
+
 class CantrackClient {
   private sessionCookie = env.CANTRACK_SESSION
   private seckeyCookie  = env.CANTRACK_SECKEY
   private bmapCookie    = env.CANTRACK_BMAP
   private liveCache     = new Map<string, GPSLocation>()
-  private lastLogin     = 0
+  private pollingTimer: ReturnType<typeof setInterval> | null = null
+  private lastPollOk    = false
+
+  // ─── Session cookies (can be refreshed via API) ───────────────────────────
+  updateCookies(session: string, seckey = "", bmap = "") {
+    this.sessionCookie = session
+    if (seckey) this.seckeyCookie = seckey
+    if (bmap)   this.bmapCookie   = bmap
+    console.log("[cantrack] 🔄 Session cookies updated manually")
+  }
 
   private cookies() {
-    const c: Record<string, string> = {
-      "ASP.NET_SessionId": this.sessionCookie || env.CANTRACK_SESSION,
-      "domainIndex": "2",
-    }
-    const sk = this.seckeyCookie || env.CANTRACK_SECKEY
-    const bm = this.bmapCookie   || env.CANTRACK_BMAP
-    if (sk) c["SECKEY_ABVK"] = sk
-    if (bm) c["BMAP_SECKEY"] = bm
-    return Object.entries(c).map(([k, v]) => `${k}=${v}`).join("; ")
+    const parts: string[] = [
+      `ASP.NET_SessionId=${this.sessionCookie}`,
+      "domainIndex=2",
+    ]
+    if (this.seckeyCookie) parts.push(`SECKEY_ABVK=${this.seckeyCookie}`)
+    if (this.bmapCookie)   parts.push(`BMAP_SECKEY=${this.bmapCookie}`)
+    return parts.join("; ")
   }
 
   private headers() {
     return {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/146.0.0.0 Safari/537.36",
-      "Accept": "*/*",
-      "Cookie": this.cookies(),
-      "Referer": `${BASE}/user/tracking.html?mds=${MDS}&school_id=${SCHOOL_ID}&custid=${CUST_ID}&mapType=GOOGLE`,
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+      "Accept":     "text/javascript, application/javascript, */*; q=0.01",
+      "X-Requested-With": "XMLHttpRequest",
+      "Referer":    `${BASE}/user/tracking.html?mds=${MDS}&school_id=${SCHOOL_ID}&custid=${CUST_ID}&mapType=GOOGLE`,
+      "Cookie":     this.cookies(),
     }
   }
 
-  private isExpired(text: string) {
+  private isSessionExpired(text: string) {
     const t = text.trim().toLowerCase()
     return t.includes("loginouts") || t.includes("window.location") ||
-           t.startsWith("<!doctype") || t.startsWith("<html") || t.length < 10
+           t.startsWith("<!doctype") || t.startsWith("<html") ||
+           t.includes("login.aspx") || t.length < 10
   }
 
+  // ─── Login ────────────────────────────────────────────────────────────────
   async login(): Promise<boolean> {
-    const r = Date.now()
     try {
+      const ts  = Date.now()
       const url = new URL(`${BASE}/user/index.aspx`)
-      url.searchParams.set("logOut", "")
-      url.searchParams.set("login_id", SCHOOL_ID)
-      url.searchParams.set("mds", MDS)
+      url.searchParams.set("login_id",  SCHOOL_ID)
+      url.searchParams.set("mds",       MDS)
       url.searchParams.set("father_id", SCHOOL_ID)
-      url.searchParams.set("isDealer", "false")
-      url.searchParams.set("r", String(r))
+      url.searchParams.set("isDealer",  "false")
+      url.searchParams.set("r",         String(ts))
 
       const resp = await fetch(url.toString(), {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/146.0.0.0 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-          "Referer": BASE + "/",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+          "Accept":     "text/html,application/xhtml+xml,*/*;q=0.8",
+          "Referer":    BASE + "/",
         },
         redirect: "follow",
       })
 
-      const setCookies = resp.headers.getSetCookie?.() ?? []
-      const cookieStr  = (resp.headers.get("set-cookie") ?? "") + setCookies.join(";")
+      // Collect all Set-Cookie headers
+      const raw = resp.headers.get("set-cookie") ?? ""
+      const all = [...(resp.headers.getSetCookie?.() ?? []), raw].join(";")
 
-      const sessionMatch = cookieStr.match(/ASP\.NET_SessionId=([^;,\s]+)/)
-      const seckeyMatch  = cookieStr.match(/SECKEY_ABVK=([^;,\s]+)/)
-      const bmapMatch    = cookieStr.match(/BMAP_SECKEY=([^;,\s]+)/)
+      const session = all.match(/ASP\.NET_SessionId=([^;,\s]+)/)?.[1]
+      const seckey  = all.match(/SECKEY_ABVK=([^;,\s]+)/)?.[1]
+      const bmap    = all.match(/BMAP_SECKEY=([^;,\s]+)/)?.[1]
 
-      if (sessionMatch) {
-        this.sessionCookie = sessionMatch[1]
-        console.log(`[cantrack] ✅ Session: ${this.sessionCookie.slice(0, 8)}…`)
+      if (session) {
+        this.sessionCookie = session
+        console.log(`[cantrack] ✅ Login OK — session: ${session.slice(0, 8)}…`)
       }
-      if (seckeyMatch) this.seckeyCookie = seckeyMatch[1]
-      if (bmapMatch)   this.bmapCookie   = bmapMatch[1]
+      if (seckey) this.seckeyCookie = seckey
+      if (bmap)   this.bmapCookie   = bmap
 
-      this.lastLogin = Date.now()
       const body = await resp.text()
-      if (body.includes("loginouts")) {
-        console.error("[cantrack] ❌ Login returned logout JS — check MDS token:", MDS.slice(0, 8))
+      if (body.includes("loginouts") || body.includes("login.aspx")) {
+        console.warn("[cantrack] ⚠️  Login page returned — MDS token may be invalid or expired")
         return false
       }
+
       return !!this.sessionCookie
     } catch (e) {
       console.error("[cantrack] Login error:", e)
@@ -100,10 +114,12 @@ class CantrackClient {
     }
   }
 
+  // ─── Parse JSONP response ─────────────────────────────────────────────────
   private parseJsonp(text: string): Record<string, unknown> {
+    // Matches both "updateDataCallBack(...)" and "TrackOBJ.updateDataCallBack(...)"
     const match = text.match(/updateDataCallBack\s*\(([\s\S]*)\)\s*;?\s*$/)
     if (!match) return {}
-    try { return JSON.parse(match[1]) }
+    try   { return JSON.parse(match[1]!) }
     catch { return {} }
   }
 
@@ -111,10 +127,11 @@ class CantrackClient {
     if (!Array.isArray(rec) || rec.length < 11) return null
     const lat = parseFloat(String(rec[2] ?? "0"))
     const lng = parseFloat(String(rec[1] ?? "0"))
-    if (lat === 0 && lng === 0) return null
+    if (!lat && !lng) return null
 
-    const uid = String(rec[10] ?? "")
+    const uid     = String(rec[10] ?? "")
     const tracker = TRACKERS[uid]
+    const tsRaw   = parseInt(String(rec[5] ?? "0"))
 
     return {
       deviceId:  uid,
@@ -122,18 +139,19 @@ class CantrackClient {
       longitude: lng,
       speedKmh:  parseFloat(String(rec[7] ?? "0")),
       heading:   parseFloat(String(rec[9] ?? "0")),
-      timestamp: new Date(parseInt(String(rec[5] ?? "0"))).toISOString(),
+      timestamp: tsRaw ? new Date(tsRaw).toISOString() : new Date().toISOString(),
       label:     tracker?.label ?? uid.slice(0, 8),
     }
   }
 
+  // ─── Fetch all trackers ───────────────────────────────────────────────────
   async fetchAll(): Promise<GPSLocation[]> {
     const ts      = Date.now()
     const userIDs = Object.keys(TRACKERS).join(",")
     const url     = new URL(`${BASE}/TrackService.aspx`)
 
     url.searchParams.set("method",    "getOnlineGpsInfoByIDUtc")
-    url.searchParams.set("callback",  "TrackOBJ.updateDataCallBack")
+    url.searchParams.set("callback",  "updateDataCallBack")
     url.searchParams.set("school_id", SCHOOL_ID)
     url.searchParams.set("custid",    CUST_ID)
     url.searchParams.set("userIDs",   userIDs)
@@ -150,10 +168,14 @@ class CantrackClient {
 
     let text = await attempt()
 
-    if (this.isExpired(text)) {
+    if (this.isSessionExpired(text)) {
       console.warn("[cantrack] Session expired — re-logging in…")
-      await this.login()
-      text = await attempt()
+      const ok = await this.login()
+      if (ok) text = await attempt()
+      else {
+        this.lastPollOk = false
+        return [...this.liveCache.values()] // return stale cache on auth failure
+      }
     }
 
     const data    = this.parseJsonp(text)
@@ -168,14 +190,28 @@ class CantrackClient {
       }
     }
 
+    if (results.length > 0) {
+      this.lastPollOk = true
+      console.log(`[cantrack] 📡 Poll OK — ${results.length} tracker(s) live`)
+      _broadcast?.(results)
+    } else {
+      console.warn("[cantrack] ⚠️  Poll returned 0 locations (auth ok but no data)")
+    }
+
     return results
   }
 
+  // ─── Fetch single tracker (uses cache if background poll is running) ───────
   async fetchOne(deviceId: string): Promise<GPSLocation | null> {
+    // Return cache immediately if poll is running and cache is warm
+    const cached = this.liveCache.get(deviceId)
+    if (cached && this.lastPollOk) return cached
+
+    // On-demand fetch as fallback
     const ts  = Date.now()
     const url = new URL(`${BASE}/TrackService.aspx`)
     url.searchParams.set("method",    "getOnlineGpsInfoByIDUtc")
-    url.searchParams.set("callback",  "TrackOBJ.updateDataCallBack")
+    url.searchParams.set("callback",  "updateDataCallBack")
     url.searchParams.set("school_id", SCHOOL_ID)
     url.searchParams.set("custid",    CUST_ID)
     url.searchParams.set("userIDs",   deviceId)
@@ -191,7 +227,7 @@ class CantrackClient {
     }
 
     let text = await attempt()
-    if (this.isExpired(text)) {
+    if (this.isSessionExpired(text)) {
       await this.login()
       text = await attempt()
     }
@@ -207,10 +243,29 @@ class CantrackClient {
       }
     }
 
-    // Return cached location if available
     return this.liveCache.get(deviceId) ?? null
   }
 
+  // ─── Background polling ───────────────────────────────────────────────────
+  startPolling(intervalMs = 30_000) {
+    if (this.pollingTimer) return
+    console.log(`[cantrack] 🔄 Starting background poll every ${intervalMs / 1000}s`)
+    // First fetch immediately
+    this.fetchAll().catch(e => console.error("[cantrack] Initial poll error:", e))
+    this.pollingTimer = setInterval(() => {
+      this.fetchAll().catch(e => console.error("[cantrack] Poll error:", e))
+    }, intervalMs)
+  }
+
+  stopPolling() {
+    if (this.pollingTimer) {
+      clearInterval(this.pollingTimer)
+      this.pollingTimer = null
+      console.log("[cantrack] ⏹  Polling stopped")
+    }
+  }
+
+  // ─── Cache accessors ──────────────────────────────────────────────────────
   getCache(deviceId: string): GPSLocation | null {
     return this.liveCache.get(deviceId) ?? null
   }
@@ -218,6 +273,9 @@ class CantrackClient {
   getAllCached(): GPSLocation[] {
     return [...this.liveCache.values()]
   }
+
+  isPolling() { return !!this.pollingTimer }
+  lastPollSuccess() { return this.lastPollOk }
 }
 
 export const cantrack = new CantrackClient()
