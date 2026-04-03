@@ -1,0 +1,241 @@
+// prisma/schema.prisma
+// Liebe Tag Logistics — full database schema
+// Bun + Prisma + SQLite
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users (senders + receivers) ──────────────────────────────────────────────
+model User {
+  id         String   @id @default(cuid())
+  phone      String   @unique
+  name       String   @default("")
+  role       String   @default("customer")   // customer | rider | admin
+  joinedAt   DateTime @default(now())
+  lastSeen   DateTime @default(now())
+  orderCount Int      @default(0)
+
+  sentOrders     Order[]  @relation("SenderOrders")
+  receivedOrders Order[]  @relation("ReceiverOrders")
+  riderOrders    Order[]  @relation("RiderOrders")
+  errands        Errand[]
+  conversations  Conversation[]
+
+  @@map("users")
+}
+
+// ─── Conversation state ────────────────────────────────────────────────────────
+model Conversation {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  state     String   @default("IDLE")
+  data      String   @default("{}")   // JSON blob
+  role      String   @default("customer")
+  updatedAt DateTime @updatedAt
+
+  user User? @relation(fields: [phone], references: [phone])
+
+  @@map("conversations")
+}
+
+// ─── Orders (delivery) ────────────────────────────────────────────────────────
+model Order {
+  id              String   @id @default(cuid())
+  orderRef        String   @unique  // LT-WA + 10 hex
+  orderNumber     String   @unique  // 16-digit numeric
+  status          String   @default("created")
+  // created | paid | assigned | picked_up | in_transit | delivered | cancelled
+
+  // Parties
+  senderPhone     String
+  senderName      String   @default("")
+  recipientPhone  String   @default("")
+  recipientName   String   @default("")
+  riderPhone      String   @default("")
+
+  // Addresses (JSON)
+  pickupJson      String   @default("{}")
+  dropoffJson     String   @default("{}")
+
+  // Package
+  packageDesc     String   @default("")
+  weightKg        Float    @default(0)
+  fragile         Boolean  @default(false)
+  itemsJson       String   @default("[]")
+
+  // Delivery
+  deliveryType    String   @default("NORMAL")   // NORMAL | PRIORITY | SCHEDULED
+  scheduledTime   String?
+
+  // Pricing
+  fareTotal       Int      @default(0)
+  fareJson        String   @default("{}")
+
+  // Payment
+  paymentType     String   @default("online")   // online | cash
+  paymentStatus   String   @default("pending")  // pending | confirmed | failed
+  paystackRef     String?
+
+  // Delivery code
+  deliveryCode    String   @default("")
+  deliveryCodeUsed Boolean @default(false)
+
+  // Pickup photo
+  pickupPhotoId   String   @default("")
+  pickupPhotoTime String   @default("")
+
+  // Waiting time
+  arrivalTime     String?
+  arrivalEpoch    Float?
+  waitingCharge   Int      @default(0)
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  paidAt          DateTime?
+  assignedAt      DateTime?
+  pickedUpAt      DateTime?
+  deliveredAt     DateTime?
+  cancelledAt     DateTime?
+
+  // Extra
+  extraJson       String   @default("{}")
+
+  sender    User  @relation("SenderOrders",   fields: [senderPhone],    references: [phone])
+  recipient User? @relation("ReceiverOrders", fields: [recipientPhone], references: [phone])
+  rider     User? @relation("RiderOrders",    fields: [riderPhone],     references: [phone])
+
+  @@map("orders")
+}
+
+// ─── Errands ──────────────────────────────────────────────────────────────────
+model Errand {
+  id              String   @id @default(cuid())
+  errandRef       String   @unique  // ER-WA + 10 hex
+  errandNumber    String   @unique  // 16-digit numeric
+  status          String   @default("created")
+  // created | paid | assigned | in_progress | completed | cancelled
+
+  // Type
+  errandType      String   @default("OTHER")
+  // SHOPPING | BANK | PHARMACY | FOOD_PICKUP | DOCUMENT | COLLECTION | OTHER
+
+  // Parties
+  clientPhone     String
+  clientName      String   @default("")
+  riderPhone      String   @default("")
+
+  // Location
+  locationJson    String   @default("{}")  // where errand runner goes
+  returnJson      String   @default("{}")  // where to bring items (optional)
+
+  // Task
+  taskDescription String   @default("")
+  shoppingList    String   @default("[]")  // JSON array of items
+  deadline        String?
+
+  // Money
+  errandFee       Int      @default(0)     // service fee
+  itemCost        Int      @default(0)     // cost of items to buy
+  totalCharge     Int      @default(0)
+  paymentType     String   @default("online")
+  paymentStatus   String   @default("pending")
+  paystackRef     String?
+
+  // Runner needs money upfront?
+  runnerNeedsCash Boolean  @default(false)
+  cashProvided    Int      @default(0)
+
+  // Proof
+  proofPhotos     String   @default("[]")  // JSON array of photo IDs
+  receiptPhotoId  String   @default("")
+
+  // Delivery code
+  deliveryCode    String   @default("")
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  paidAt          DateTime?
+  assignedAt      DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+
+  extraJson       String   @default("{}")
+
+  client User @relation(fields: [clientPhone], references: [phone])
+
+  @@map("errands")
+}
+
+// ─── Riders ───────────────────────────────────────────────────────────────────
+model Rider {
+  id              String   @id @default(cuid())
+  phone           String   @unique
+  name            String   @default("")
+  deviceId        String   @default("")   // Cantrack device ID
+  bankAccount     String   @default("")
+  bankCode        String   @default("")
+  bankName        String   @default("")
+  recipientCode   String   @default("")   // Paystack recipient
+  balance         Int      @default(0)    // earnings balance (kobo)
+  totalEarned     Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  trips LedgerEntry[]
+
+  @@map("riders")
+}
+
+// ─── Financial ledger ─────────────────────────────────────────────────────────
+model LedgerEntry {
+  id          String   @id @default(cuid())
+  riderPhone  String
+  orderRef    String
+  amount      Int      // naira
+  commission  Int
+  earnings    Int
+  paymentType String
+  settledAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  rider Rider @relation(fields: [riderPhone], references: [phone])
+
+  @@map("ledger_entries")
+}
+
+// ─── Settlements ──────────────────────────────────────────────────────────────
+model Settlement {
+  id         String   @id @default(cuid())
+  riderPhone String
+  amount     Int
+  weekEnding String
+  status     String   @default("pending")  // pending | paid | failed
+  paystackRef String?
+  createdAt  DateTime @default(now())
+
+  @@map("settlements")
+}
+
+// ─── GPS assignments ──────────────────────────────────────────────────────────
+model Assignment {
+  id         String   @id @default(cuid())
+  deviceId   String
+  orderRef   String
+  pickupLat  Float
+  pickupLng  Float
+  destLat    Float?
+  destLng    Float?
+  status     String   @default("active")   // active | completed
+  startedAt  DateTime @default(now())
+  endedAt    DateTime?
+
+  @@map("assignments")
+}

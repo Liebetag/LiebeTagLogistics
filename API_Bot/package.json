@@ -1,0 +1,26 @@
+{
+  "name": "liebetaglogistics-api",
+  "version": "4.0.0",
+  "description": "Liebe Tag Logistics — WhatsApp Bot + GPS API (TypeScript/Bun)",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev":   "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "db:push":     "bunx prisma db push",
+    "db:generate": "bunx prisma generate",
+    "db:studio":   "bunx prisma studio"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk":   "^0.24.0",
+    "@prisma/client":      "^5.14.0",
+    "@types/bun":          "latest",
+    "hono":                "^4.4.0",
+    "openai":              "^4.52.0",
+    "zod":                 "^3.23.0"
+  },
+  "devDependencies": {
+    "prisma":    "^5.14.0",
+    "typescript": "^5.4.0"
+  }
+}

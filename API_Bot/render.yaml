@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: liebetaglogistics-api
+    runtime: node
+    region: frankfurt
+    plan: starter
+    rootDir: .
+    buildCommand: npm install -g bun && bun install && bunx prisma generate && bunx prisma db push
+    startCommand: bun src/index.ts
+    envVars:
+      - key: DATABASE_URL
+        value: file:/data/liebetag.db
+      - key: DB_DIR
+        value: /data
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "8000"
+
+    disk:
+      name: liebetaglogistics-data
+      mountPath: /data
+      sizeGB: 1
