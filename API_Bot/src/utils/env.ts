@@ -35,6 +35,8 @@ export const env = {
   CANTRACK_SESSION:   optional("CANTRACK_SESSION",    ""),
   CANTRACK_SECKEY:    optional("CANTRACK_SECKEY",     ""),
   CANTRACK_BMAP:      optional("CANTRACK_BMAP",       ""),
+  CANTRACK_USER:      optional("CANTRACK_USER",       "LIEBE TAG LOGISTICS"),
+  CANTRACK_PASS:      optional("CANTRACK_PASS",       "123456"),
 
   // AI
   ANTHROPIC_KEY:    optional("ANTHROPIC_API_KEY", ""),

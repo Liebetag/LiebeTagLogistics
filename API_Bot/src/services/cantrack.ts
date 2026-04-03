@@ -42,7 +42,7 @@ class CantrackClient {
   private cookies() {
     const parts: string[] = [
       `ASP.NET_SessionId=${this.sessionCookie}`,
-      "domainIndex=2",
+      "domainIndex=0",
     ]
     if (this.seckeyCookie) parts.push(`SECKEY_ABVK=${this.seckeyCookie}`)
     if (this.bmapCookie)   parts.push(`BMAP_SECKEY=${this.bmapCookie}`)
@@ -66,9 +66,66 @@ class CantrackClient {
            t.includes("login.aspx") || t.length < 10
   }
 
-  // ─── Login ────────────────────────────────────────────────────────────────
+  // ─── Login via username + password (form POST) ───────────────────────────
   async login(): Promise<boolean> {
     try {
+      const user = env.CANTRACK_USER || "LIEBE TAG LOGISTICS"
+      const pass = env.CANTRACK_PASS || "123456"
+
+      // Step 1 — GET login page to obtain initial session cookie
+      const getResp = await fetch(`${BASE}/`, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+          "Accept":     "text/html,application/xhtml+xml,*/*;q=0.8",
+        },
+        redirect: "follow",
+      })
+      const getRaw = [
+        getResp.headers.get("set-cookie") ?? "",
+        ...(getResp.headers.getSetCookie?.() ?? []),
+      ].join(";")
+      const initSession = getRaw.match(/ASP\.NET_SessionId=([^;,\s]+)/)?.[1] ?? this.sessionCookie
+
+      // Step 2 — POST credentials
+      const form = new URLSearchParams({
+        "loginformBase_username": user,
+        "loginformBase_password": pass,
+        "loginformBase_remember": "false",
+        "formName":               "loginformBase",
+      })
+
+      const postResp = await fetch(`${BASE}/Skins/DefaultIndex/login.aspx`, {
+        method:   "POST",
+        headers: {
+          "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Referer":      `${BASE}/`,
+          "Cookie":       `ASP.NET_SessionId=${initSession}`,
+        },
+        body:     form.toString(),
+        redirect: "follow",
+      })
+
+      const all = [
+        postResp.headers.get("set-cookie") ?? "",
+        ...(postResp.headers.getSetCookie?.() ?? []),
+      ].join(";")
+
+      const session = all.match(/ASP\.NET_SessionId=([^;,\s]+)/)?.[1] ?? initSession
+      const seckey  = all.match(/SECKEY_ABVK=([^;,\s]+)/)?.[1]
+      const bmap    = all.match(/BMAP_SECKEY=([^;,\s]+)/)?.[1]
+
+      if (session) {
+        this.sessionCookie = session
+        console.log(`[cantrack] ✅ Login OK — session: ${session.slice(0, 8)}…`)
+      }
+      if (seckey) { this.seckeyCookie = seckey; console.log("[cantrack] ✅ SECKEY obtained") }
+      if (bmap)   { this.bmapCookie   = bmap;   console.log("[cantrack] ✅ BMAP obtained") }
+
+      // Verify: if SECKEY set, login succeeded
+      if (seckey) return true
+
+      // Fallback: try MDS token URL approach
       const ts  = Date.now()
       const url = new URL(`${BASE}/user/index.aspx`)
       url.searchParams.set("login_id",  SCHOOL_ID)
@@ -77,35 +134,21 @@ class CantrackClient {
       url.searchParams.set("isDealer",  "false")
       url.searchParams.set("r",         String(ts))
 
-      const resp = await fetch(url.toString(), {
+      const mdsResp = await fetch(url.toString(), {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-          "Accept":     "text/html,application/xhtml+xml,*/*;q=0.8",
-          "Referer":    BASE + "/",
+          "Cookie":     `ASP.NET_SessionId=${session}; domainIndex=0`,
         },
         redirect: "follow",
       })
-
-      // Collect all Set-Cookie headers
-      const raw = resp.headers.get("set-cookie") ?? ""
-      const all = [...(resp.headers.getSetCookie?.() ?? []), raw].join(";")
-
-      const session = all.match(/ASP\.NET_SessionId=([^;,\s]+)/)?.[1]
-      const seckey  = all.match(/SECKEY_ABVK=([^;,\s]+)/)?.[1]
-      const bmap    = all.match(/BMAP_SECKEY=([^;,\s]+)/)?.[1]
-
-      if (session) {
-        this.sessionCookie = session
-        console.log(`[cantrack] ✅ Login OK — session: ${session.slice(0, 8)}…`)
-      }
-      if (seckey) this.seckeyCookie = seckey
-      if (bmap)   this.bmapCookie   = bmap
-
-      const body = await resp.text()
-      if (body.includes("loginouts") || body.includes("login.aspx")) {
-        console.warn("[cantrack] ⚠️  Login page returned — MDS token may be invalid or expired")
-        return false
-      }
+      const mdsAll = [
+        mdsResp.headers.get("set-cookie") ?? "",
+        ...(mdsResp.headers.getSetCookie?.() ?? []),
+      ].join(";")
+      const mdsSeckey = mdsAll.match(/SECKEY_ABVK=([^;,\s]+)/)?.[1]
+      const mdsBmap   = mdsAll.match(/BMAP_SECKEY=([^;,\s]+)/)?.[1]
+      if (mdsSeckey) this.seckeyCookie = mdsSeckey
+      if (mdsBmap)   this.bmapCookie   = mdsBmap
 
       return !!this.sessionCookie
     } catch (e) {
