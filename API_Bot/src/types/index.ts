@@ -76,6 +76,7 @@ export interface ConversationData {
   shoppingList?:      string[]
   errandDeadline?:    string
   runnerNeedsCash?:   boolean
+  cashProvided?:      number
   errandFare?:        ErrandFare
 
   // Rider-specific
@@ -91,6 +92,11 @@ export interface ConversationData {
 
   // Address suggestions
   suggestions?:       Location[]
+
+  // AI conversation fields
+  aiMessages?:        unknown[]    // AIMessage[] stored as JSON
+  aiIntent?:          string
+  aiConfirmIntent?:   string
 
   // Misc
   _lastLocation?:     Location
