@@ -7,7 +7,7 @@ import type { GPSLocation } from "../types/index.ts"
 const BASE      = "https://www.cantrackportal.com"
 const SCHOOL_ID = env.CANTRACK_SCHOOL_ID
 const CUST_ID   = env.CANTRACK_CUST_ID
-const MDS       = env.CANTRACK_MDS
+const MDS       = env.CANTRACK_MDS  // 9267b5563a484d69b75e1aa1d637ab9f
 
 // All 5 trackers — device ID → metadata
 export const TRACKERS: Record<string, { label: string; imei: string; sim: string }> = {
@@ -157,19 +157,18 @@ class CantrackClient {
     }
   }
 
-  // ─── Parse JSONP response ─────────────────────────────────────────────────
-  private parseJsonp(text: string): Record<string, unknown> {
-    // Matches both "updateDataCallBack(...)" and "TrackOBJ.updateDataCallBack(...)"
-    const match = text.match(/updateDataCallBack\s*\(([\s\S]*)\)\s*;?\s*$/)
-    if (!match) return {}
-    try   { return JSON.parse(match[1]!) }
+  // ─── Parse plain JSON response from getUserAndGPSInfoUtcByIds ────────────
+  // key mapping: 0=sys_time, 1=lng, 2=lat, 5=datetime, 7=speed, 9=heading, 10=user_id
+  private parseResponse(text: string): Record<string, unknown> {
+    if (this.isSessionExpired(text)) return {}
+    try   { return JSON.parse(text) }
     catch { return {} }
   }
 
   private parseRecord(rec: unknown[]): GPSLocation | null {
     if (!Array.isArray(rec) || rec.length < 11) return null
-    const lat = parseFloat(String(rec[2] ?? "0"))
     const lng = parseFloat(String(rec[1] ?? "0"))
+    const lat = parseFloat(String(rec[2] ?? "0"))
     if (!lat && !lng) return null
 
     const uid     = String(rec[10] ?? "")
@@ -188,21 +187,24 @@ class CantrackClient {
   }
 
   // ─── Fetch all trackers ───────────────────────────────────────────────────
-  async fetchAll(): Promise<GPSLocation[]> {
-    const ts      = Date.now()
-    const userIDs = Object.keys(TRACKERS).join(",")
-    const url     = new URL(`${BASE}/TrackService.aspx`)
-
-    url.searchParams.set("method",    "getOnlineGpsInfoByIDUtc")
-    url.searchParams.set("callback",  "updateDataCallBack")
+  private buildUrl(user_ids: string) {
+    const url = new URL(`${BASE}/TrackService.aspx`)
+    url.searchParams.set("method",    "getUserAndGPSInfoUtcByIds")
     url.searchParams.set("school_id", SCHOOL_ID)
     url.searchParams.set("custid",    CUST_ID)
-    url.searchParams.set("userIDs",   userIDs)
+    url.searchParams.set("user_ids",  user_ids)
     url.searchParams.set("mapType",   "GOOGLE")
     url.searchParams.set("option",    "en")
-    url.searchParams.set("t",         String(ts))
+    url.searchParams.set("Selected",  "device")
+    url.searchParams.set("currentid", CUST_ID)
+    url.searchParams.set("update",    "1")
     url.searchParams.set("mds",       MDS)
-    url.searchParams.set("timestamp", String(ts))
+    return url
+  }
+
+  // ─── Fetch all trackers ───────────────────────────────────────────────────
+  async fetchAll(): Promise<GPSLocation[]> {
+    const url = this.buildUrl(Object.keys(TRACKERS).join(","))
 
     const attempt = async () => {
       const r = await fetch(url.toString(), { headers: this.headers() })
@@ -217,11 +219,11 @@ class CantrackClient {
       if (ok) text = await attempt()
       else {
         this.lastPollOk = false
-        return [...this.liveCache.values()] // return stale cache on auth failure
+        return [...this.liveCache.values()]
       }
     }
 
-    const data    = this.parseJsonp(text)
+    const data    = this.parseResponse(text)
     const records = (data.records as unknown[][]) ?? []
     const results: GPSLocation[] = []
 
@@ -246,23 +248,10 @@ class CantrackClient {
 
   // ─── Fetch single tracker (uses cache if background poll is running) ───────
   async fetchOne(deviceId: string): Promise<GPSLocation | null> {
-    // Return cache immediately if poll is running and cache is warm
     const cached = this.liveCache.get(deviceId)
     if (cached && this.lastPollOk) return cached
 
-    // On-demand fetch as fallback
-    const ts  = Date.now()
-    const url = new URL(`${BASE}/TrackService.aspx`)
-    url.searchParams.set("method",    "getOnlineGpsInfoByIDUtc")
-    url.searchParams.set("callback",  "updateDataCallBack")
-    url.searchParams.set("school_id", SCHOOL_ID)
-    url.searchParams.set("custid",    CUST_ID)
-    url.searchParams.set("userIDs",   deviceId)
-    url.searchParams.set("mapType",   "GOOGLE")
-    url.searchParams.set("option",    "en")
-    url.searchParams.set("t",         String(ts))
-    url.searchParams.set("mds",       MDS)
-    url.searchParams.set("timestamp", String(ts))
+    const url = this.buildUrl(deviceId)
 
     const attempt = async () => {
       const r = await fetch(url.toString(), { headers: this.headers() })
@@ -275,7 +264,7 @@ class CantrackClient {
       text = await attempt()
     }
 
-    const data = this.parseJsonp(text)
+    const data = this.parseResponse(text)
     const recs = (data.records as unknown[][]) ?? []
 
     for (const rec of recs) {

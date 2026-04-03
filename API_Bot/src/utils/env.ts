@@ -32,7 +32,7 @@ export const env = {
   // Cantrack GPS
   CANTRACK_SCHOOL_ID: optional("CANTRACK_SCHOOL_ID", "a0882f1c-821f-4852-bccd-4ef7a3e69b08"),
   CANTRACK_CUST_ID:   optional("CANTRACK_CUST_ID",   "a0882f1c-821f-4852-bccd-4ef7a3e69b08"),
-  CANTRACK_MDS:       optional("CANTRACK_MDS_TOKEN",  "f8989b7a2dfd4c6ab524882d308dc66f"),
+  CANTRACK_MDS:       optional("CANTRACK_MDS_TOKEN",  "9267b5563a484d69b75e1aa1d637ab9f"),
   CANTRACK_SESSION:   optional("CANTRACK_SESSION",    ""),
   CANTRACK_SECKEY:    optional("CANTRACK_SECKEY",     ""),
   CANTRACK_BMAP:      optional("CANTRACK_BMAP",       ""),
