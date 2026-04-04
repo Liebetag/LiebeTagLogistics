@@ -17,7 +17,7 @@ import type { ConversationData, Location } from "../types/index.ts"
 
 // States handled by legacy flow handlers (post-booking mechanical states)
 const LEGACY_DELIVERY_STATES = new Set([
-  "AWAIT_PAYMENT", "WAITING_RIDER", "TRACKING",
+  "AWAIT_PAYMENT", "TRACKING",
   "PROCESSING_PAYMENT",
   // Legacy collection states (keep working if someone is mid-flow)
   "PICKUP_ADDRESS", "ADDRESS_SUGGEST_PICKUP", "DROPOFF_ADDRESS", "ADDRESS_SUGGEST_DROPOFF",

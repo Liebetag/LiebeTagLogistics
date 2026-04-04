@@ -290,6 +290,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-04-04 | fix: stop AI latching onto stale/history addresses as dropoff |
 | 2026-04-04 | fix: resolve WAITING_RIDER lockout and Cantrack re-login loop |
 | 2026-04-04 | Create README.md |
 | 2026-04-04 | bug fixes to AI conversational response |
@@ -299,7 +300,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-04-03 | fix: Turso migration — auto-create tables on startup, separate TURSO_DATABASE_URL |
 | 2026-04-03 | feat: switch from SQLite file to Turso (libSQL) cloud database |
 | 2026-04-03 | fix: remove default export to prevent double Bun.serve on startup |
-| 2026-04-03 | fix: cantrack domainIndex=0, credential login, CANTRACK_USER/PASS env vars |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*
