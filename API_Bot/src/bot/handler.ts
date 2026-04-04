@@ -163,6 +163,15 @@ async function handleCustomer(
       return
     }
 
+    // Cash payment switch — customer wants to pay with cash instead of online
+    if (state === "AWAIT_PAYMENT") {
+      const wantsCash = /\b(cash|pay cash|pay with cash|i have cash|use cash|switch to cash|change to cash|back|go back)\b/i.test(lower)
+      if (wantsCash) {
+        await switchToCash(phone, data)
+        return
+      }
+    }
+
     // Tracking number check
     const digits = text.replace(/\D/g, "")
     const isTrackingQuery = lower.startsWith("lt-") || lower.startsWith("er-") ||
@@ -271,4 +280,29 @@ async function handleRiderPhoto(phone: string, photoId: string) {
       ).catch(() => {})
     }
   }
+}
+
+async function switchToCash(phone: string, data: ConversationData) {
+  const orderRef = data.orderRef ?? ""
+  const fare     = data.fare
+
+  // Update DB order to cash payment
+  await db.order.updateMany({
+    where: { orderRef },
+    data:  { paymentType: "cash", status: "created" },
+  })
+  await setState(phone, "WAITING_RIDER", { ...data, paymentType: "cash" })
+
+  await sendText(phone,
+    `✅ *Switched to cash payment!*\n\n` +
+    `Order: \`${orderRef}\`\n` +
+    `💰 You'll pay *₦${(fare?.totalFare ?? 0).toLocaleString()}* directly to the rider.\n\n` +
+    `🔍 *Finding your rider now...*`
+  )
+
+  const { dispatchAllRiders } = await import("../flows/dispatch.ts")
+  const pickup  = data.pickup!
+  const dropoff = data.dropoff!
+  const name    = await getUserName(phone) ?? ""
+  await dispatchAllRiders(phone, orderRef, { ...data, paymentType: "cash" }, fare!, pickup, dropoff, "cash", name)
 }

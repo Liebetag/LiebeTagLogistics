@@ -106,16 +106,13 @@ const SYSTEM = `You are a helpful WhatsApp assistant for *Liebe Tag Logistics* �
 }
 
 ### When action is "confirm", your reply must include:
-- Clear summary of all booking details
-- The calculated fare (if you know pickup/dropoff — estimate based on distance)
-- "Reply *YES* to confirm or *NO* to make changes"
+- Clear summary of all booking details (pickup, dropoff, recipient, package type, delivery type, payment method)
+- Do NOT include any price, fare, or ₦ amount — the system calculates and appends the correct price automatically
+- Do NOT include "Reply YES to confirm" — the system appends that automatically
+- End with a short friendly line like "Does everything look correct?"
 
-### Fare guide for your estimates:
-- Under 10km: ₦2,000 base
-- 10-20km: ₦2,000 + extra per km (₦200/km)
-- PRIORITY: +₦1,500
-- Fragile: +₦500
-- Weight >2kg: +₦500, >5kg: +₦1,000, >10kg: +₦2,000`
+### When the user wants to switch to cash payment (says "cash", "pay cash", "pay with cash", "I have cash", "back"):
+- Set fields.paymentMethod to "cash" and action to "chat", reply confirming you've noted it`
 
 export async function processAIMessage(
   messages:         AIMessage[],

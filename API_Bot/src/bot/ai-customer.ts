@@ -188,12 +188,15 @@ export async function handleAICustomer(
           }
         )
         newData.fare = fare
-
-        if (!confirmMsg.includes("₦")) {
-          confirmMsg +=
-            `\n\n💰 *Delivery fee: ₦${fare.totalFare.toLocaleString()}*\n` +
-            `_${fare.breakdown}_`
-        }
+        // Always append the actual calculated fare — strip any ₦ estimate Claude may have included
+        confirmMsg = confirmMsg.replace(/₦[\d,]+[^\n]*/g, "").replace(/\n{3,}/g, "\n\n").trimEnd()
+        confirmMsg += `\n\n💰 *Delivery fee: ₦${fare.totalFare.toLocaleString()}*`
+        const fareExtras: string[] = []
+        if (fare.weightCharge > 0)      fareExtras.push(`Heavy item +₦${fare.weightCharge.toLocaleString()}`)
+        if (fare.fragileCharge > 0)     fareExtras.push(`Fragile handling +₦${fare.fragileCharge.toLocaleString()}`)
+        if (fare.priorityFee > 0)       fareExtras.push(`Priority service +₦${fare.priorityFee.toLocaleString()}`)
+        if (fare.scheduledDiscount > 0) fareExtras.push(`Scheduled saving -₦${fare.scheduledDiscount.toLocaleString()}`)
+        if (fareExtras.length > 0) confirmMsg += `\n_${fareExtras.join(" · ")}_`
       }
 
       if (result.intent === "quote") {
@@ -207,10 +210,7 @@ export async function handleAICustomer(
 
       newData.aiConfirmIntent = result.intent
       await setState(phone, "AI_CONFIRM", newData)
-      // Only append the prompt if Claude didn't already include it
-      const yesNoPrompt = /reply\s+(yes|YES)/i.test(confirmMsg)
-        ? "" : "\n\n*Reply YES to confirm or NO to make changes*"
-      await sendText(phone, confirmMsg + yesNoPrompt)
+      await sendText(phone, confirmMsg + "\n\n*Reply YES to confirm or NO to make changes*")
       break
     }
 
@@ -465,8 +465,7 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
       `📍 Pickup: _${pickup.address.slice(0, 55)}_\n` +
       `🏁 Drop-off: _${dropoff.address.slice(0, 55)}_\n` +
       `👤 Recipient: ${data.recipientName}\n\n` +
-      `💰 Fare: *₦${fare.totalFare.toLocaleString()}* (cash to rider)\n` +
-      `_${fare.breakdown}_\n\n` +
+      `💰 Fare: *₦${fare.totalFare.toLocaleString()}* (cash to rider)\n\n` +
       `🔗 Track order: ${env.APP_URL}/track/${orderRef}\n\n` +
       `🔍 *Finding your rider now...*`
     )
@@ -493,8 +492,7 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
       `📍 Pickup: _${pickup.address.slice(0, 55)}_\n` +
       `🏁 Drop-off: _${dropoff.address.slice(0, 55)}_\n` +
       `👤 Recipient: ${data.recipientName}\n\n` +
-      `💰 *Total: ₦${fare.totalFare.toLocaleString()}*\n` +
-      `_${fare.breakdown}_\n\n` +
+      `💰 *Total: ₦${fare.totalFare.toLocaleString()}*\n\n` +
       `🔗 Track order: ${env.APP_URL}/track/${orderRef}\n\n` +
       `💳 *Pay here:*\n${link.paymentUrl}\n\n` +
       `⏳ _Link expires in 30 minutes_\n` +

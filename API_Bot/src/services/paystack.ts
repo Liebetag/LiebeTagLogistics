@@ -1,4 +1,5 @@
 // src/services/paystack.ts
+import { createHmac } from "node:crypto"
 import { env } from "../utils/env.ts"
 
 const BASE    = "https://api.paystack.co"
@@ -38,9 +39,7 @@ export async function verifyTransaction(reference: string) {
 }
 
 export function verifyWebhook(payload: string, signature: string): boolean {
-  const crypto = require("crypto")
-  const expected = crypto
-    .createHmac("sha512", env.PAYSTACK_SECRET)
+  const expected = createHmac("sha512", env.PAYSTACK_SECRET)
     .update(payload)
     .digest("hex")
   return expected === signature
