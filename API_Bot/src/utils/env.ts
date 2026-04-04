@@ -39,9 +39,9 @@ export const env = {
   CANTRACK_USER:      optional("CANTRACK_USER",       "LIEBE TAG LOGISTICS"),
   CANTRACK_PASS:      optional("CANTRACK_PASS",       "123456"),
 
-  // AI
-  ANTHROPIC_KEY:    optional("ANTHROPIC_API_KEY", ""),
-  OPENAI_KEY:       optional("OPENAI_API_KEY", ""),
+  // AI — accept both ANTHROPIC_API_KEY and ANTHROPIC_KEY so either name works in Render
+  ANTHROPIC_KEY:    optional("ANTHROPIC_API_KEY", "") || optional("ANTHROPIC_KEY", ""),
+  OPENAI_KEY:       optional("OPENAI_API_KEY", "") || optional("OPENAI_KEY", ""),
 
   // App
   APP_URL:          optional("APP_URL", "https://liebetaglogistics-api.onrender.com"),
@@ -51,4 +51,15 @@ export const env = {
   ADMIN_PHONES:     optional("ADMIN_PHONES", "").split(",").filter(Boolean),
   RIDER_PHONES:     optional("RIDER_PHONES", "").split(",").filter(Boolean),
   RIDER_DEVICES:    optional("RIDER_DEVICES", ""),
+}
+
+// Startup warnings for critical keys
+if (!env.ANTHROPIC_KEY) {
+  console.warn("⚠️  WARNING: ANTHROPIC_API_KEY is not set. All AI features will fail with 'Sorry, I had a moment there.'")
+}
+if (!env.EVOLUTION_KEY) {
+  console.warn("⚠️  WARNING: EVOLUTION_API_KEY is not set. WhatsApp messages cannot be sent.")
+}
+if (!env.PAYSTACK_SECRET) {
+  console.warn("⚠️  WARNING: PAYSTACK_SECRET_KEY is not set. Payment links will fail.")
 }

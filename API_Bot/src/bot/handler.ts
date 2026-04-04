@@ -9,7 +9,7 @@ import { sendMenu, notifyAdmin, backHint, genDeliveryCode, deliveryQuote, gmapsL
 import { handleDelivery } from "../flows/delivery.ts"
 import { handleErrand, errandTypeMenu } from "../flows/errand.ts"
 import { handleRider } from "./rider.ts"
-import { handleAICustomer } from "./ai-customer.ts"
+import { handleAICustomer, showOrderStatus, handleOrderModification, applyOrderModification } from "./ai-customer.ts"
 import { calculateFare, RIDER_PCT, waitingCharge } from "../pricing/index.ts"
 import { db } from "./states.ts"
 import { env } from "../utils/env.ts"
@@ -143,6 +143,49 @@ async function handleCustomer(
     return
   }
 
+  // ── Pending modification confirm (AI_MODIFY_CONFIRM) ────────────────────
+  if (state === "AI_MODIFY_CONFIRM") {
+    if (/^(yes|yeah|yep|y|confirm|ok|proceed|sure)(\W|$)/i.test(lower)) {
+      await applyOrderModification(phone, data)
+    } else {
+      await setState(phone, "TRACKING", { ...data, _pendingModRef: undefined })
+      await sendText(phone, "✅ No changes made. Your original order stands.")
+    }
+    return
+  }
+
+  // ── Active order states: intercept cancel, modification, and all other messages ──
+  if (["WAITING_RIDER", "TRACKING", "AWAIT_PAYMENT"].includes(state)) {
+    const isCancel = ["cancel", "stop"].includes(lower)
+    const isModify = /\b(change|modify|update|wrong|new drop|new pickup|different address|move to|switch to)\b/i.test(text)
+    if (isCancel || isModify) {
+      await handleOrderModification(phone, text, lower, state, data)
+      return
+    }
+
+    // Tracking number check
+    const digits = text.replace(/\D/g, "")
+    const isTrackingQuery = lower.startsWith("lt-") || lower.startsWith("er-") ||
+      (digits.length === 16 && text.trim() === digits)
+    if (isTrackingQuery) {
+      await showOrderStatus(phone, text.trim())
+      return
+    }
+
+    // All other messages while waiting for rider — show current status instead of legacy echo
+    if (state === "WAITING_RIDER") {
+      const orderRef = data.orderRef ?? data.currentOrder?.orderRef ?? ""
+      await sendText(phone,
+        `⏳ *Searching for a rider...*\n\nOrder: \`${orderRef}\`\n\n` +
+        `While you wait you can:\n` +
+        `• Type *change [what]* to modify your order\n` +
+        `• Type *cancel* to cancel your order\n\n` +
+        `_We'll notify you as soon as a rider accepts_ 🏍️`
+      )
+      return
+    }
+  }
+
   // ── Post-booking states → existing flow handlers ────────────────────────
   if (LEGACY_DELIVERY_STATES.has(state)) {
     await handleDelivery(phone, text, lower, location, state, data)
@@ -160,7 +203,6 @@ async function handleCustomer(
 
   // ── AWAITING_TRACKING (legacy) ──────────────────────────────────────────
   if (state === "AWAITING_TRACKING") {
-    const { showOrderStatus } = await import("./ai-customer.ts")
     await showOrderStatus(phone, text.trim())
     await setState(phone, "AI_CHAT", {})
     return

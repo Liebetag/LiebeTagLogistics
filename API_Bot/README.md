@@ -3,7 +3,7 @@
 WhatsApp bot + GPS tracking + delivery management platform for Abuja, Nigeria.
 Built with **Bun · Hono · Prisma · TypeScript · Claude AI**.
 
-<!-- LAST_UPDATED: 2026-04-04 -->
+<!-- LAST_UPDATED: 2026-04-04 v2 -->
 
 ---
 
@@ -97,26 +97,27 @@ bun dev              # hot-reload via --watch
 
 | Variable | Description |
 |----------|-------------|
-| `PORT` | HTTP server port (default `3000`) |
-| `DATABASE_URL` | Turso libSQL URL (`libsql://...`) |
-| `DATABASE_AUTH_TOKEN` | Turso auth token |
-| `ANTHROPIC_KEY` | Anthropic API key (Claude Haiku) |
-| `EVOLUTION_URL` | Evolution API base URL |
-| `EVOLUTION_APIKEY` | Evolution API global key |
-| `EVOLUTION_INSTANCE` | Evolution API instance name |
-| `OPENAI_API_KEY` | OpenAI API key (Whisper voice notes) |
+| `PORT` | HTTP server port (default `8000`) |
+| `TURSO_DATABASE_URL` | Turso libSQL cloud URL (`libsql://...`) — or `DATABASE_URL` for local SQLite |
+| `TURSO_AUTH_TOKEN` | Turso auth token |
+| `ANTHROPIC_API_KEY` | **Required for AI bot** — Anthropic API key (Claude Haiku). Also accepted as `ANTHROPIC_KEY`. |
+| `EVOLUTION_API_URL` | Evolution API base URL |
+| `EVOLUTION_API_KEY` | Evolution API global key |
+| `EVOLUTION_INSTANCE` | Evolution API instance name (default `liebe-tag`) |
+| `OPENAI_API_KEY` | OpenAI API key (Whisper voice note transcription — optional) |
 | `PAYSTACK_SECRET_KEY` | Paystack secret key |
 | `PAYSTACK_PUBLIC_KEY` | Paystack public key |
-| `CANTRACK_USERNAME` | Cantrack portal login email |
-| `CANTRACK_PASSWORD` | Cantrack portal password |
-| `CANTRACK_DEVICE_IDS` | Comma-separated GPS device IDs |
-| `CANTRACK_SESSION` | (Optional) fallback ASP.NET session cookie |
-| `RIDER_PHONES` | Comma-separated rider WhatsApp numbers |
+| `CANTRACK_SCHOOL_ID` | Cantrack school/account ID |
+| `CANTRACK_MDS_TOKEN` | Cantrack MDS authentication token |
+| `CANTRACK_SESSION` | Cantrack ASP.NET session cookie |
+| `CANTRACK_SECKEY` | Cantrack seckey cookie |
+| `CANTRACK_BMAP` | Cantrack bmap cookie |
+| `RIDER_PHONES` | Comma-separated rider WhatsApp numbers (`234...`) |
+| `RIDER_DEVICES` | `phone:deviceId` pairs for GPS tracking, comma-separated |
 | `ADMIN_PHONES` | Comma-separated admin WhatsApp numbers |
-| `API_KEY` | Bearer token for protected REST endpoints |
-| `APP_URL` | Public base URL (e.g. `https://api.liebetag.com`) |
+| `BOOTSTRAP_API_KEY` | Bearer token for protected REST endpoints |
+| `APP_URL` | Public base URL (e.g. `https://liebetaglogistics-api.onrender.com`) |
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowed origins |
-| `BUSINESS_PHONE` | Business WhatsApp number (for admin alerts) |
 
 ---
 
@@ -289,16 +290,16 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
-| 2026-04-04 | Full AI conversational bot (Claude Haiku) replacing 28-state machine |
-| 2026-04-04 | Public tracking page with live GPS, pickup photo, and timeline |
-| 2026-04-04 | Proximity alerts — notify sender + recipient when rider ≤1.5 km away |
-| 2026-04-04 | Mandatory rider pickup photo (no skip allowed) |
-| 2026-04-04 | Fixed empty delivery queue bug |
-| 2026-04-04 | Next-in-queue customer notification after delivery completes |
-| 2026-04-04 | Tracking URL hyperlinked in all order messages |
-| 2026-04-04 | Natural language name change (`change my name to X`) |
-| 2026-04-04 | Customer history suggestions (frequent recipients pre-filled) |
-
+| 2026-04-04 | bug fixes to AI conversational response |
+| 2026-04-04 | Create README.md |
+| 2026-04-04 | feat: smart AI bot, tracking page, photo mandatory, proximity alerts |
+| 2026-04-04 | feat: replace rigid state machine with fully conversational AI bot |
+| 2026-04-03 | fix: correct Cantrack endpoint, method, params and MDS token |
+| 2026-04-03 | fix: Turso migration — auto-create tables on startup, separate TURSO_DATABASE_URL |
+| 2026-04-03 | feat: switch from SQLite file to Turso (libSQL) cloud database |
+| 2026-04-03 | fix: remove default export to prevent double Bun.serve on startup |
+| 2026-04-03 | fix: cantrack domainIndex=0, credential login, CANTRACK_USER/PASS env vars |
+| 2026-04-03 | fix: rebuild Cantrack GPS tracker with background polling + WebSocket dashboard |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*

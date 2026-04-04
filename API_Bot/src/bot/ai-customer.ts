@@ -60,6 +60,48 @@ export async function handleAICustomer(
     return
   }
 
+  // ── Menu / help shortcut — show menu without clearing booking state ──────
+  if (["menu", "help"].includes(lower)) {
+    await sendMenu(phone, userName)
+    return
+  }
+
+  // ── Map numbered menu picks to natural language so AI understands them ───
+  const menuMap: Record<string, string> = {
+    "1": "I want to book a delivery",
+    "2": "I want to book an errand",
+    "3": "I want to track my order",
+    "4": "I want a price quote",
+    "5": "FAQ and support information",
+  }
+  if (menuMap[lower.trim()] && !data.pickup && !data.dropoff) {
+    text  = menuMap[lower.trim()]!
+    lower = text.toLowerCase()
+  }
+
+  // ── Detect raw "lat,lng" pasted as text — treat same as GPS pin ──────────
+  if (!location) {
+    const coordMatch = lower.match(/^(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,2}\.\d{3,})$/)
+    if (coordMatch) {
+      const lat = parseFloat(coordMatch[1]!)
+      const lng = parseFloat(coordMatch[2]!)
+      if (inAbuja(lat, lng)) {
+        const addr = await reverseGeocode(lat, lng) ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+        const loc: Location = { lat, lng, address: addr }
+        if (!data.pickup) {
+          await updateData(phone, { pickup: loc })
+          text = `My pickup location is: ${addr}`
+        } else {
+          await updateData(phone, { dropoff: loc })
+          text = `The drop-off location is: ${addr}`
+        }
+        lower = text.toLowerCase()
+        const refreshed = await getState(phone)
+        data = refreshed.data
+      }
+    }
+  }
+
   // ── AI_CONFIRM shortcut: yes/no without calling Claude ─────────────────
   if (state === "AI_CONFIRM") {
     if (/^(yes|yeah|yep|y|confirm|proceed|ok|go ahead|sure|done|1)(\W|$)/i.test(lower)) {
@@ -165,7 +207,10 @@ export async function handleAICustomer(
 
       newData.aiConfirmIntent = result.intent
       await setState(phone, "AI_CONFIRM", newData)
-      await sendText(phone, confirmMsg + "\n\n*Reply YES to confirm or NO to make changes*")
+      // Only append the prompt if Claude didn't already include it
+      const yesNoPrompt = /reply\s+(yes|YES)/i.test(confirmMsg)
+        ? "" : "\n\n*Reply YES to confirm or NO to make changes*"
+      await sendText(phone, confirmMsg + yesNoPrompt)
       break
     }
 
@@ -664,6 +709,207 @@ export async function showOrderStatus(phone: string, ref: string) {
     (timeline ? `\n🕒 *Timeline:*\n${timeline}` : "") +
     `\n_Type_ *menu* _to go back_`
   )
+}
+
+// ─── Post-confirmation order modification ────────────────────────────────────
+// Called from handler.ts when customer is in WAITING_RIDER / TRACKING state
+// and sends a message that's a modification request or "cancel".
+export async function handleOrderModification(
+  phone: string,
+  text:  string,
+  lower: string,
+  _state: string,
+  data:  ConversationData,
+) {
+  const userName = await getUserName(phone)
+  const orderRef = data.orderRef ?? ""
+
+  // ── Cancel ──────────────────────────────────────────────────────────────
+  if (["cancel", "stop"].includes(lower)) {
+    const order = orderRef ? await db.order.findFirst({ where: { orderRef } }) : null
+    if (order && ["created", "assigned", "picked_up"].includes(order.status)) {
+      await db.order.updateMany({ where: { orderRef }, data: { status: "cancelled", cancelledAt: new Date() } })
+      // Notify rider if assigned
+      if (data.riderPhone) {
+        await sendText(data.riderPhone,
+          `❌ *Order cancelled by customer*\nOrder: \`${orderRef}\`\n\nJob cancelled — no further action needed.`
+        )
+      }
+    }
+    await setState(phone, "IDLE", {})
+    await sendMenu(phone, userName)
+    await notifyAdmin(`❌ Customer ${phone} cancelled order ${orderRef}`)
+    return
+  }
+
+  // ── Modification request — run through AI ────────────────────────────────
+  // Build context so the AI knows what order is already confirmed
+  const order = orderRef ? await db.order.findFirst({ where: { orderRef } }) : null
+  if (!order) {
+    // No order found — just route to normal AI chat
+    await handleAICustomer(phone, text, lower, null, "AI_CHAT", data)
+    return
+  }
+
+  const oldPickup  = JSON.parse(order.pickupJson)  as { lat: number; lng: number; address: string }
+  const oldDropoff = JSON.parse(order.dropoffJson) as { lat: number; lng: number; address: string }
+
+  // Context for AI: tell it there's a confirmed order and what the user wants to change
+  const orderContext =
+    `CONFIRMED ORDER ${orderRef}:\n` +
+    `Pickup: ${oldPickup.address}\n` +
+    `Dropoff: ${oldDropoff.address}\n` +
+    `Recipient: ${order.recipientName} (${order.recipientPhone})\n` +
+    `Package: ${order.packageDesc}\n` +
+    `Fare: ₦${order.fareTotal.toLocaleString()}\n` +
+    `Payment: ${order.paymentType}\n\n` +
+    `The customer wants to MODIFY this order. Extract only the changed fields. ` +
+    `For changed addresses, geocode and return new coordinates. ` +
+    `Reply with action "confirm" showing old vs new values.`
+
+  const history: AIMessage[] = [{ role: "user", content: text }]
+  const result = await processAIMessage(history, orderContext)
+
+  if (result._failed) {
+    await sendText(phone, "Sorry, couldn't process that. Type *cancel* to cancel the order or describe your change again.")
+    return
+  }
+
+  // Merge changed fields
+  const newData = await mergeFields({ ...data, pickup: oldPickup, dropoff: oldDropoff }, result.fields)
+
+  // ── Check modification fee: pickup changes >1km AND rider accepted >10 min ago ──
+  let modFee = 0
+  if (result.fields.pickupAddress && data.riderAcceptedAt) {
+    const minsSinceAccept = (Date.now() - new Date(data.riderAcceptedAt as string).getTime()) / 60000
+    if (minsSinceAccept > 10 && newData.pickup) {
+      const km = haversineKm(oldPickup.lat, oldPickup.lng, newData.pickup.lat, newData.pickup.lng)
+      if (km > 1) modFee = 300
+    }
+  }
+
+  // ── Recalculate fare if locations changed ─────────────────────────────────
+  const pickup  = newData.pickup  ?? oldPickup
+  const dropoff = newData.dropoff ?? oldDropoff
+  const newFare = calculateFare(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, {
+    weightKg:     order.weightKg,
+    deliveryType: order.deliveryType as any,
+    fragile:      order.fragile,
+  })
+  const fareDiff   = newFare.totalFare + modFee - order.fareTotal
+  const feeLines   = modFee > 0 ? `\n⚠️ Late pickup change fee: *₦300*` : ""
+  const diffLine   = fareDiff > 0
+    ? `\n💳 *Additional charge: ₦${fareDiff.toLocaleString()}*`
+    : fareDiff < 0
+    ? `\n💚 *Fare reduced by: ₦${Math.abs(fareDiff).toLocaleString()}*`
+    : ""
+
+  // Send confirmation of the change
+  const confirmMsg =
+    `✏️ *Modification request for* \`${orderRef}\`\n\n` +
+    (result.fields.pickupAddress  ? `📍 New pickup: ${pickup.address.slice(0, 55)}\n`  : "") +
+    (result.fields.dropoffAddress ? `🏁 New dropoff: ${dropoff.address.slice(0, 55)}\n` : "") +
+    (result.fields.recipientName  ? `👤 New recipient: ${newData.recipientName}\n`      : "") +
+    (result.fields.recipientPhone ? `📞 New phone: ${newData.recipientPhone}\n`         : "") +
+    `\n💰 Updated fare: *₦${(newFare.totalFare + modFee).toLocaleString()}*${feeLines}${diffLine}\n\n` +
+    `*Reply YES to confirm this change or NO to keep original*`
+
+  // Store pending modification data
+  await setState(phone, "AI_MODIFY_CONFIRM", {
+    ...data,
+    _pendingModPickup:    pickup,
+    _pendingModDropoff:   dropoff,
+    _pendingModFare:      newFare,
+    _pendingModFee:       modFee,
+    _pendingModFareDiff:  fareDiff,
+    _pendingModRef:       orderRef,
+    recipientName:        newData.recipientName,
+    recipientPhone:       newData.recipientPhone,
+  })
+  await sendText(phone, confirmMsg)
+}
+
+// ─── Apply a confirmed modification ──────────────────────────────────────────
+export async function applyOrderModification(phone: string, data: ConversationData) {
+  const orderRef   = (data._pendingModRef  as string) ?? data.orderRef ?? ""
+  const pickup     = data._pendingModPickup  as { lat: number; lng: number; address: string }
+  const dropoff    = data._pendingModDropoff as { lat: number; lng: number; address: string }
+  const newFare    = data._pendingModFare    as FareBreakdown
+  const modFee     = (data._pendingModFee   as number) ?? 0
+  const fareDiff   = (data._pendingModFareDiff as number) ?? 0
+
+  if (!orderRef || !pickup || !dropoff || !newFare) {
+    await sendText(phone, "❌ Couldn't apply the change. Please try again.")
+    await setState(phone, "TRACKING", { ...data, _pendingModRef: undefined })
+    return
+  }
+
+  // Update DB
+  await db.order.updateMany({
+    where: { orderRef },
+    data: {
+      pickupJson:    JSON.stringify(pickup),
+      dropoffJson:   JSON.stringify(dropoff),
+      fareTotal:     newFare.totalFare + modFee,
+      fareJson:      JSON.stringify(newFare),
+      recipientName:  data.recipientName  ?? undefined,
+      recipientPhone: data.recipientPhone ?? undefined,
+    },
+  })
+
+  // Notify rider of the change
+  if (data.riderPhone) {
+    const modLines =
+      `📍 Pickup: ${pickup.address.slice(0, 50)}\n` +
+      `🏁 Dropoff: ${dropoff.address.slice(0, 50)}\n` +
+      `👤 Recipient: ${data.recipientName ?? "—"} · ${data.recipientPhone ?? "—"}\n` +
+      `💰 New fare: ₦${(newFare.totalFare + modFee).toLocaleString()}`
+    await sendText(data.riderPhone,
+      `✏️ *Order modified by customer*\nOrder: \`${orderRef}\`\n\n${modLines}\n\nPlease update your route.`
+    )
+    // Resend location pin if pickup changed
+    if (pickup.lat) {
+      const { sendLocation } = await import("../services/evolution.ts")
+      await sendLocation(data.riderPhone, pickup.lat, pickup.lng, "Updated Pickup", pickup.address)
+    }
+  }
+
+  // Generate additional payment link if fareDiff > 0 and online payment
+  const payType = (await db.order.findFirst({ where: { orderRef }, select: { paymentType: true } }))?.paymentType
+  let extraPayMsg  = ""
+  if (fareDiff > 0 && payType === "online") {
+    const link = await createPaymentLink(
+      `${phone}@whatsapp.com`,
+      fareDiff,
+      `${orderRef}-MOD`,
+      { phone, orderRef, type: "modification" },
+    )
+    if (link) {
+      extraPayMsg = `\n\n💳 *Extra payment required: ₦${fareDiff.toLocaleString()}*\n${link.paymentUrl}`
+    }
+  }
+
+  await setState(phone, "TRACKING", {
+    ...data, pickup, dropoff,
+    _pendingModRef: undefined, _pendingModPickup: undefined,
+    _pendingModDropoff: undefined, _pendingModFare: undefined,
+  })
+  await sendText(phone,
+    `✅ *Order updated!*\n\n` +
+    `📍 ${pickup.address.slice(0, 55)}\n` +
+    `🏁 ${dropoff.address.slice(0, 55)}\n` +
+    `💰 New fare: ₦${(newFare.totalFare + modFee).toLocaleString()}` +
+    extraPayMsg
+  )
+  await notifyAdmin(`✏️ Order ${orderRef} modified by ${phone}`)
+}
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R   = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a   = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
 }
 
 // ─── Normalize Nigerian phone numbers ────────────────────────────────────────

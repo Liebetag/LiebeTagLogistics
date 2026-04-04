@@ -61,8 +61,44 @@ export async function handleRider(
 
   // Decline
   if (["no", "n", "decline", "pass", "2"].includes(lower) && data.pendingJobs?.length) {
+    const pending     = (data.pendingJobs ?? []) as PendingJob[]
+    const declinedJob = pending[0]
     await updateData(phone, { pendingJobs: [], pendingMode: null })
     await sendText(phone, "✅ Declined. You'll receive the next available job.")
+
+    // Check if ALL riders have now declined this specific job
+    if (declinedJob?.customerPhone) {
+      const jobRef = declinedJob.orderRef ?? declinedJob.errandRef ?? ""
+      let anyStillPending = false
+      for (const rp of env.RIDER_PHONES) {
+        if (rp === phone) continue
+        const rs       = await getState(rp)
+        const rPending = (rs.data.pendingJobs ?? []) as PendingJob[]
+        if (rPending.some(j => (j.orderRef ?? j.errandRef) === jobRef)) {
+          anyStillPending = true
+          break
+        }
+      }
+      if (!anyStillPending) {
+        // All riders declined — notify customer
+        await sendText(declinedJob.customerPhone,
+          `⚠️ *All riders are currently busy*\n\n` +
+          `We couldn't assign a rider for your order right now.\n\n` +
+          `Your options:\n` +
+          `• Type *schedule* to reschedule for a later time\n` +
+          `• Type *cancel* to cancel this order\n\n` +
+          `_We'll keep looking and notify you if a rider becomes free_`
+        )
+        // Update order status in DB
+        if (jobRef.startsWith("LT-") || jobRef.startsWith("ER-")) {
+          const table = jobRef.startsWith("ER-") ? "errand" : "order"
+          if (table === "order") {
+            await db.order.updateMany({ where: { orderRef: jobRef }, data: { status: "created" } })
+          }
+        }
+        await notifyAdmin(`⚠️ All riders declined job ${jobRef} for ${declinedJob.customerPhone}`)
+      }
+    }
     return
   }
 
@@ -285,6 +321,7 @@ async function riderAccept(phone: string, job: PendingJob, data: ConversationDat
 
   await setState(customerPhone, "TRACKING", {
     ...custData, deviceId: data.deviceId, riderPhone: phone, orderRef,
+    riderAcceptedAt: new Date().toISOString(),   // used for modification fee timing
   })
 
   const payLine = payType === "cash"

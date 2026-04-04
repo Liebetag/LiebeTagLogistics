@@ -63,7 +63,7 @@ class CantrackClient {
     const t = text.trim().toLowerCase()
     return t.includes("loginouts") || t.includes("window.location") ||
            t.startsWith("<!doctype") || t.startsWith("<html") ||
-           t.includes("login.aspx") || t.length < 10
+           t.includes("login.aspx")
   }
 
   // ─── Login via username + password (form POST) ───────────────────────────

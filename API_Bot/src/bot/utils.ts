@@ -59,14 +59,13 @@ export async function sendMenu(phone: string, name = "") {
   await sendText(phone,
     `${greeting}` +
     `Fast, reliable delivery and errands across Abuja 🏍️\n\n` +
-    `1. 📦 New Delivery\n` +
-    `2. 🏃 Book an Errand\n` +
-    `3. 🔍 Track an order\n` +
-    `4. 💰 Get a price quote\n` +
-    `5. ❓ FAQ & Support\n\n` +
-    `_Reply 1–5_\n` +
-    `_Type_ *back* _at any step to correct a mistake_\n` +
-    `_Type_ *cancel* _to start over_`
+    `What can I help you with? Just tell me in your own words:\n\n` +
+    `📦 *Delivery* — Send a package anywhere in Abuja\n` +
+    `🏃 *Errand* — Runner for shopping, bank, pharmacy...\n` +
+    `💰 *Quote* — Get a price before booking\n` +
+    `🔍 *Track* — Check your order status\n\n` +
+    `_Example: "Send a document from Wuse 2 to Garki for John, 08012345678"_\n\n` +
+    `_Type_ *cancel* _at any time to start over_`
   )
 }
 

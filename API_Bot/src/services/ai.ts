@@ -31,11 +31,12 @@ export type ExtractedFields = {
 }
 
 export type AIResult = {
-  reply:         string
-  intent:        "delivery" | "errand" | "quote" | "track" | "faq" | "cancel" | "greeting" | "update_profile" | "other"
-  fields:        ExtractedFields
-  action:        "chat" | "confirm" | "execute" | "track"
+  reply:          string
+  intent:         "delivery" | "errand" | "quote" | "track" | "faq" | "cancel" | "greeting" | "update_profile" | "other"
+  fields:         ExtractedFields
+  action:         "chat" | "confirm" | "execute" | "track"
   missingFields?: string[]
+  _failed?:       boolean   // true when the AI call failed — used to skip saving bad replies to history
 }
 
 const SYSTEM = `You are a helpful WhatsApp assistant for *Liebe Tag Logistics* — a fast delivery and errand service in Abuja, Nigeria.
@@ -119,6 +120,19 @@ export async function processAIMessage(
   messages:         AIMessage[],
   collectedSummary: string,
 ): Promise<AIResult> {
+
+  // Guard: if API key is missing, fail immediately with a clear server log
+  if (!env.ANTHROPIC_KEY) {
+    console.error("[ai] ANTHROPIC_API_KEY / ANTHROPIC_KEY is not set in environment — AI is disabled. Add it in your Render environment variables.")
+    return {
+      reply:   "🤖 My AI is not configured yet. Type *menu* to see options, or contact support.",
+      intent:  "other",
+      fields:  {},
+      action:  "chat",
+      _failed: true,
+    }
+  }
+
   const systemFull = collectedSummary
     ? `${SYSTEM}\n\n---\n## Already collected and confirmed in this conversation\n${collectedSummary}\n---`
     : SYSTEM
@@ -126,7 +140,7 @@ export async function processAIMessage(
   try {
     const response = await client.messages.create({
       model:      "claude-haiku-4-5-20251001",
-      max_tokens: 1200,
+      max_tokens: 2048,
       system:     systemFull,
       messages,
     })
@@ -142,22 +156,25 @@ export async function processAIMessage(
       const parsed = JSON.parse(match[0]) as AIResult
       // Ensure required fields exist
       return {
-        reply:        parsed.reply        ?? "Sorry, I had a hiccup. Could you say that again?",
-        intent:       parsed.intent       ?? "other",
-        fields:       parsed.fields       ?? {},
-        action:       parsed.action       ?? "chat",
+        reply:         parsed.reply         ?? "Sorry, I had a hiccup. Could you say that again?",
+        intent:        parsed.intent        ?? "other",
+        fields:        parsed.fields        ?? {},
+        action:        parsed.action        ?? "chat",
         missingFields: parsed.missingFields,
+        _failed:       false,
       }
     }
 
-    throw new Error("No JSON object found in AI response")
-  } catch (e) {
-    console.error("[ai] processAIMessage error:", e)
+    throw new Error(`No JSON object found in AI response. Raw response was: ${raw.slice(0, 200)}`)
+  } catch (e: any) {
+    console.error("[ai] processAIMessage error:", e?.status ?? "", e?.message ?? e)
+    // Give a slightly different message so users know they can retry or use menu
     return {
-      reply:  "Sorry, I had a moment there. Could you repeat that?",
-      intent: "other",
-      fields: {},
-      action: "chat",
+      reply:   "Sorry, I had a moment there. Please try again, or type *menu* to see options.",
+      intent:  "other",
+      fields:  {},
+      action:  "chat",
+      _failed: true,
     }
   }
 }
