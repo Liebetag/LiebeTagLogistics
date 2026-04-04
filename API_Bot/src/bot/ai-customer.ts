@@ -301,10 +301,9 @@ async function buildHistorySummary(phone: string): Promise<string> {
     }
 
     if (!seen.size) return ""
-    const lines = ["Frequent recipients (from this customer's history):"]
+    const lines = ["Frequent recipients (for name/phone pre-fill only — do NOT use these to set dropoffAddress):"]
     for (const [recPhone, info] of seen) {
-      const addrs = info.addresses.slice(0, 2).map(a => a.slice(0, 50)).join(" / ")
-      lines.push(`- ${info.name || "Unknown"} · ${recPhone}${addrs ? ` · Previously delivered to: ${addrs}` : ""}`)
+      lines.push(`- ${info.name || "Unknown"} · ${recPhone}`)
     }
     return lines.join("\n")
   } catch {
