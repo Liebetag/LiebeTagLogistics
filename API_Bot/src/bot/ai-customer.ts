@@ -82,17 +82,31 @@ export async function handleAICustomer(
   const summary = buildCollectedSummary(data) + "\n" + await buildHistorySummary(phone)
   const result  = await processAIMessage(history, summary)
 
-  // Add Claude's reply to history
-  history.push({ role: "assistant", content: result.reply })
+  // Only save to history if the AI call actually succeeded
+  // (prevents failed "Sorry" messages from poisoning future conversations)
+  if (!result._failed) {
+    history.push({ role: "assistant", content: result.reply })
+  } else {
+    history.pop() // remove the user message we just pushed, keep history clean
+  }
 
   // ── Handle name-change intent immediately ───────────────────────────────
   if (result.intent === "update_profile" && result.fields.newName) {
     const formatted = result.fields.newName.trim().replace(/\b\w/g, c => c.toUpperCase())
     await setUserName(phone, formatted)
     await sendText(phone, result.reply)
-    // Don't discard existing conversation data — just save updated history
     const nd = { ...data, aiMessages: history as unknown as ConversationData["aiMessages"] }
     await setState(phone, state === "AI_CONFIRM" ? "AI_CONFIRM" : "AI_CHAT", nd)
+    return
+  }
+
+  // ── If AI failed, send the error reply and stop — don't merge anything ──
+  if (result._failed) {
+    await sendText(phone, result.reply)
+    await setState(phone, state === "AI_CONFIRM" ? "AI_CONFIRM" : "AI_CHAT", {
+      ...data,
+      aiMessages: history as unknown as ConversationData["aiMessages"],
+    })
     return
   }
 
@@ -118,7 +132,6 @@ export async function handleAICustomer(
     }
 
     case "confirm": {
-      // Calculate and embed fare if not already in the reply
       let confirmMsg = result.reply
 
       if ((result.intent === "delivery" || result.intent === "quote") &&
@@ -134,7 +147,6 @@ export async function handleAICustomer(
         )
         newData.fare = fare
 
-        // Append fare breakdown if Claude didn't include it
         if (!confirmMsg.includes("₦")) {
           confirmMsg +=
             `\n\n💰 *Delivery fee: ₦${fare.totalFare.toLocaleString()}*\n` +
@@ -143,7 +155,6 @@ export async function handleAICustomer(
       }
 
       if (result.intent === "quote") {
-        // Quote only — show price, offer to book
         await setState(phone, "AI_CHAT", { ...newData, aiIntent: "quote_done" })
         await sendText(phone,
           confirmMsg +
@@ -152,7 +163,6 @@ export async function handleAICustomer(
         break
       }
 
-      // Real booking confirm
       newData.aiConfirmIntent = result.intent
       await setState(phone, "AI_CONFIRM", newData)
       await sendText(phone, confirmMsg + "\n\n*Reply YES to confirm or NO to make changes*")
@@ -160,7 +170,6 @@ export async function handleAICustomer(
     }
 
     case "execute": {
-      // Claude determined user confirmed — execute directly
       await setState(phone, "AI_CHAT", newData)
       await executeBooking(phone, userName, newData)
       break
@@ -187,7 +196,6 @@ async function mergeFields(
   const d = { ...data }
 
   if (fields.pickupAddress && fields.pickupAddress !== "CURRENT_LOCATION") {
-    // Only geocode if address changed
     if (!d.pickup || !d.pickup.address.toLowerCase().includes(fields.pickupAddress.toLowerCase().slice(0, 15))) {
       const loc = await geocode(fields.pickupAddress)
       if (loc && inAbuja(loc.lat, loc.lng)) d.pickup = loc
@@ -208,17 +216,17 @@ async function mergeFields(
     }
   }
 
-  if (fields.recipientName)               d.recipientName   = fields.recipientName
-  if (fields.recipientPhone)              d.recipientPhone  = normalizePhone(fields.recipientPhone)
-  if (fields.packageDesc)                 d.packageDesc     = fields.packageDesc
-  if (typeof fields.weightKg === "number") d.weightKg       = fields.weightKg
-  if (typeof fields.fragile === "boolean") d.fragile        = fields.fragile
-  if (fields.deliveryType)                d.deliveryType    = fields.deliveryType
-  if (fields.scheduledTime)               d.scheduledTime   = fields.scheduledTime
-  if (fields.paymentMethod)               d.paymentType     = fields.paymentMethod
-  if (fields.errandType)                  d.errandType      = fields.errandType
-  if (fields.taskDescription)             d.taskDescription = fields.taskDescription
-  if (fields.deadline)                    d.errandDeadline  = fields.deadline
+  if (fields.recipientName)                d.recipientName   = fields.recipientName
+  if (fields.recipientPhone)               d.recipientPhone  = normalizePhone(fields.recipientPhone)
+  if (fields.packageDesc)                  d.packageDesc     = fields.packageDesc
+  if (typeof fields.weightKg === "number") d.weightKg        = fields.weightKg
+  if (typeof fields.fragile === "boolean") d.fragile         = fields.fragile
+  if (fields.deliveryType)                 d.deliveryType    = fields.deliveryType
+  if (fields.scheduledTime)               d.scheduledTime    = fields.scheduledTime
+  if (fields.paymentMethod)               d.paymentType      = fields.paymentMethod
+  if (fields.errandType)                  d.errandType       = fields.errandType
+  if (fields.taskDescription)             d.taskDescription  = fields.taskDescription
+  if (fields.deadline)                    d.errandDeadline   = fields.deadline
   if (typeof fields.runnerNeedsCash === "boolean") d.runnerNeedsCash = fields.runnerNeedsCash
   if (typeof fields.cashAmount === "number")        d.cashProvided   = fields.cashAmount
 
@@ -236,7 +244,6 @@ async function buildHistorySummary(phone: string): Promise<string> {
     })
     if (!past.length) return ""
 
-    // Dedupe recipients by phone
     const seen  = new Map<string, { name: string; addresses: string[] }>()
     for (const o of past) {
       if (!o.recipientPhone) continue
@@ -297,8 +304,13 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
   const pickup  = data.pickup
   const dropoff = data.dropoff
 
-  if (!pickup || !dropoff) {
-    await sendText(phone, "❌ I still need both pickup and drop-off locations. What are they?")
+  if (!pickup || !pickup.lat || !pickup.lng) {
+    await sendText(phone, "📍 I need your pickup location. Please share your GPS pin or type the full address.")
+    await setState(phone, "AI_CHAT", data)
+    return
+  }
+  if (!dropoff || !dropoff.lat || !dropoff.lng) {
+    await sendText(phone, "📍 I need the drop-off location. Please share a GPS pin or type the full address.")
     await setState(phone, "AI_CHAT", data)
     return
   }
@@ -318,39 +330,65 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
   const delivCode   = genDeliveryCode()
   const isCash      = data.paymentType === "cash"
 
+  // ── Ensure sender user record exists (required by DB foreign key) ───────
+  try {
+    await db.user.upsert({
+      where:  { phone },
+      update: { name: userName || undefined },
+      create: { phone, name: userName ?? "" },
+    })
+  } catch (e) {
+    console.error("[ai-customer] Sender upsert error:", e)
+  }
+
+  // ── Ensure recipient user record exists (required by DB foreign key) ────
+  if (data.recipientPhone) {
+    try {
+      await db.user.upsert({
+        where:  { phone: data.recipientPhone },
+        update: {},
+        create: { phone: data.recipientPhone, name: data.recipientName ?? "" },
+      })
+    } catch (e) {
+      console.error("[ai-customer] Recipient upsert error:", e)
+    }
+  }
+
   try {
     await db.order.create({
       data: {
-        id:              crypto.randomUUID(),
+        id:               crypto.randomUUID(),
         orderRef,
         orderNumber,
-        status:          isCash ? "assigned" : "created",
-        senderPhone:     phone,
-        senderName:      userName,
-        recipientPhone:  data.recipientPhone!,
-        recipientName:   data.recipientName!,
-        pickupJson:      JSON.stringify(pickup),
-        dropoffJson:     JSON.stringify(dropoff),
-        packageDesc:     data.packageDesc   ?? "Package",
-        weightKg:        data.weightKg      ?? 0,
-        fragile:         data.fragile ? 1 : 0,
-        itemsJson:       "[]",
-        deliveryType:    data.deliveryType  ?? "NORMAL",
-        scheduledTime:   data.scheduledTime ?? null,
-        fareTotal:       fare.totalFare,
-        fareJson:        JSON.stringify(fare),
-        paymentType:     data.paymentType   ?? "online",
-        paymentStatus:   "pending",
-        deliveryCode:    delivCode,
-        deliveryCodeUsed: 0,
-        pickupPhotoId:   "",
-        pickupPhotoTime: "",
-        extraJson:       "{}",
+        status:           isCash ? "assigned" : "created",
+        senderPhone:      phone,
+        senderName:       userName ?? "",
+        recipientPhone:   data.recipientPhone ?? "",
+        recipientName:    data.recipientName  ?? "",
+        pickupJson:       JSON.stringify(pickup),
+        dropoffJson:      JSON.stringify(dropoff),
+        packageDesc:      data.packageDesc    ?? "Package",
+        weightKg:         data.weightKg       ?? 0,
+        fragile:          data.fragile === true,    // ← explicit boolean, never 0/1
+        itemsJson:        "[]",
+        deliveryType:     data.deliveryType   ?? "NORMAL",
+        scheduledTime:    data.scheduledTime  ?? null,
+        fareTotal:        fare.totalFare,
+        fareJson:         JSON.stringify(fare),
+        paymentType:      data.paymentType    ?? "cash",
+        paymentStatus:    "pending",
+        deliveryCode:     delivCode,
+        deliveryCodeUsed: false,                    // ← explicit boolean, never 0
+        pickupPhotoId:    "",
+        pickupPhotoTime:  "",
+        extraJson:        "{}",
       },
     })
   } catch (e) {
     console.error("[ai-customer] Order create error:", e)
-    await sendText(phone, "❌ Something went wrong saving your order. Please try again.")
+    await sendText(phone,
+      "❌ Something went wrong saving your order. Please try again or type *menu* to start over."
+    )
     await setState(phone, "AI_CHAT", data)
     return
   }
@@ -445,7 +483,7 @@ async function executeErrand(phone: string, userName: string, data: Conversation
 
   const deadline   = (data.errandDeadline ?? "").toLowerCase()
   const isRush     = deadline.includes("hour") || deadline.includes("urgent") || deadline.includes("asap") || deadline.includes("now")
-  const centralLat = 9.0579, centralLng = 7.4951  // Central Abuja fallback
+  const centralLat = 9.0579, centralLng = 7.4951
 
   const fare = calculateErrandFare(centralLat, centralLng, location.lat, location.lng, {
     rush:       isRush,
@@ -459,6 +497,17 @@ async function executeErrand(phone: string, userName: string, data: Conversation
   const isCash       = data.paymentType === "cash"
   const cashAmt      = (data.cashProvided as number) ?? 0
 
+  // ── Ensure client user record exists (required by DB foreign key) ────────
+  try {
+    await db.user.upsert({
+      where:  { phone },
+      update: { name: userName || undefined },
+      create: { phone, name: userName ?? "" },
+    })
+  } catch (e) {
+    console.error("[ai-customer] Client upsert error:", e)
+  }
+
   try {
     await db.errand.create({
       data: {
@@ -468,7 +517,7 @@ async function executeErrand(phone: string, userName: string, data: Conversation
         status:          isCash ? "assigned" : "created",
         errandType:      data.errandType      ?? "Other",
         clientPhone:     phone,
-        clientName:      userName,
+        clientName:      userName             ?? "",
         riderPhone:      "",
         locationJson:    JSON.stringify(location),
         returnJson:      "{}",
@@ -478,9 +527,9 @@ async function executeErrand(phone: string, userName: string, data: Conversation
         errandFee:       fare.totalFee,
         itemCost:        cashAmt,
         totalCharge:     fare.totalFee + cashAmt,
-        paymentType:     data.paymentType     ?? "online",
+        paymentType:     data.paymentType     ?? "cash",
         paymentStatus:   "pending",
-        runnerNeedsCash: data.runnerNeedsCash ? 1 : 0,
+        runnerNeedsCash: data.runnerNeedsCash === true,  // ← explicit boolean
         cashProvided:    0,
         proofPhotos:     "[]",
         receiptPhotoId:  "",
@@ -490,7 +539,9 @@ async function executeErrand(phone: string, userName: string, data: Conversation
     })
   } catch (e) {
     console.error("[ai-customer] Errand create error:", e)
-    await sendText(phone, "❌ Something went wrong saving your errand. Please try again.")
+    await sendText(phone,
+      "❌ Something went wrong saving your errand. Please try again or type *menu* to start over."
+    )
     await setState(phone, "AI_CHAT", data)
     return
   }
@@ -579,15 +630,15 @@ export async function showOrderStatus(phone: string, ref: string) {
   }
 
   const STATUS: Record<string, string> = {
-    created:    "📋 Order placed",
-    paid:       "💳 Payment confirmed",
-    assigned:   "🏍️ Rider assigned",
-    picked_up:  "📦 Package collected",
-    in_progress:"🏃 Errand in progress",
-    in_transit: "🚀 On the way",
-    delivered:  "✅ Delivered",
-    completed:  "✅ Completed",
-    cancelled:  "❌ Cancelled",
+    created:     "📋 Order placed",
+    paid:        "💳 Payment confirmed",
+    assigned:    "🏍️ Rider assigned",
+    picked_up:   "📦 Package collected",
+    in_progress: "🏃 Errand in progress",
+    in_transit:  "🚀 On the way",
+    delivered:   "✅ Delivered",
+    completed:   "✅ Completed",
+    cancelled:   "❌ Cancelled",
   }
 
   const locJson  = JSON.parse((record as any).pickupJson ?? (record as any).locationJson ?? "{}") as { address?: string }
