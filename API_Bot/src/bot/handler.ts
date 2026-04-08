@@ -10,6 +10,8 @@ import { handleDelivery } from "../flows/delivery.ts"
 import { handleErrand, errandTypeMenu } from "../flows/errand.ts"
 import { handleRider } from "./rider.ts"
 import { handleAICustomer, showOrderStatus, handleOrderModification, applyOrderModification } from "./ai-customer.ts"
+import { extractOrderNumberFromPhoto } from "../services/ai.ts"
+import { getMediaBase64 } from "../services/evolution.ts"
 import { calculateFare, RIDER_PCT, waitingCharge } from "../pricing/index.ts"
 import { db } from "./states.ts"
 import { env } from "../utils/env.ts"
@@ -245,6 +247,48 @@ async function handleRiderPhoto(phone: string, photoId: string) {
   const conv  = await getState(phone)
   const state = conv.state
   const data  = conv.data
+
+  // ── Photo used as order-number confirmation (label scan) ────────────────────
+  if (state === "RIDER_AWAITING_PICKUP_CONFIRM") {
+    await sendText(phone, "📷 _Reading order number from photo..._")
+    const imgBuf = await getMediaBase64(photoId)
+    if (!imgBuf) {
+      await sendText(phone, "❌ Couldn't load the photo. Please try again or type the last 5 digits from the label.")
+      return
+    }
+    const b64     = imgBuf.toString("base64")
+    const digits  = await extractOrderNumberFromPhoto(b64)
+    if (!digits) {
+      await sendText(phone,
+        `❌ Couldn't read an order number from that photo.\n\n` +
+        `Please type the *last 5 digits* from the order number on the label, or try a clearer photo.`
+      )
+      return
+    }
+    // Validate against the rider's assigned order
+    const order = await db.order.findFirst({ where: { orderNumber: digits } })
+    if (!order) {
+      await sendText(phone, `❌ Order \`${digits}\` not found. Try a clearer photo or type the last 5 digits.`)
+      return
+    }
+    const expectedRef = (data.currentOrder as any)?.orderRef ?? data.orderRef ?? ""
+    if (expectedRef && order.orderRef.toUpperCase() !== expectedRef.toUpperCase()) {
+      await sendText(phone,
+        `⚠️ *Wrong package!*\n\nPhoto shows order \`${order.orderRef}\`, but your assigned order is \`${expectedRef}\`.\n\n` +
+        `_Type_ *cancel* _if there is a problem_`
+      )
+      return
+    }
+    // Order number confirmed via photo — now require pickup photo
+    await updateData(phone, { pickupOrderNumber: digits })
+    await setState(phone, "RIDER_AWAITING_PICKUP_PHOTO", { ...data, pickupOrderNumber: digits }, "rider")
+    await sendText(phone,
+      `✅ *Order confirmed from photo:* \`${digits}\`\n\n` +
+      `📷 *Now send a photo of the package itself.*\n\n` +
+      `_Tap 📎 → Camera or Gallery_\n\n⚠️ _Photo is required to proceed_`
+    )
+    return
+  }
 
   if (state === "RIDER_AWAITING_PICKUP_PHOTO") {
     const orderRef     = data.currentOrder?.orderRef ?? data.orderRef ?? ""

@@ -3,7 +3,8 @@
 // for the info-collection phase. Post-booking states (AWAIT_PAYMENT, TRACKING, etc.)
 // continue to be handled by the existing delivery/errand flow handlers.
 
-import { sendText } from "../services/evolution.ts"
+import { sendText, sendDocumentBase64 } from "../services/evolution.ts"
+import { generateCustomerPDF, type OrderPDFData } from "../utils/pdf.ts"
 import { getState, setState, updateData, getUserName, setUserName, db } from "./states.ts"
 import { geocode, reverseGeocode, inAbuja } from "../services/geocoding.ts"
 import { calculateFare, calculateErrandFare } from "../pricing/index.ts"
@@ -456,6 +457,28 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
     `_Track at liebetag.com_`
   ).catch(() => {})
 
+  // Build PDF data (shared between cash + online paths)
+  const pdfData: OrderPDFData = {
+    orderRef,
+    orderNumber,
+    senderName:     userName ?? "",
+    senderPhone:    phone,
+    recipientName:  data.recipientName  ?? "",
+    recipientPhone: data.recipientPhone ?? "",
+    pickupAddress:  pickup.address,
+    dropoffAddress: dropoff.address,
+    packageDesc:    data.packageDesc ?? "Package",
+    weightKg:       data.weightKg    ?? 0,
+    fragile:        data.fragile === true,
+    deliveryType:   data.deliveryType ?? "NORMAL",
+    fareTotal:      fare.totalFare,
+    riderEarnings:  fare.riderEarnings,
+    commission:     fare.companyCommission,
+    paymentType:    data.paymentType ?? "cash",
+    paymentStatus:  "pending",
+    createdAt:      new Date(),
+  }
+
   if (isCash) {
     await setState(phone, "WAITING_RIDER", newData)
     await sendText(phone,
@@ -467,7 +490,8 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
       `👤 Recipient: ${data.recipientName}\n\n` +
       `💰 Fare: *₦${fare.totalFare.toLocaleString()}* (cash to rider)\n\n` +
       `🔗 Track order: ${env.APP_URL}/track/${orderRef}\n\n` +
-      `🔍 *Finding your rider now...*`
+      `🔍 *Finding your rider now...*\n\n` +
+      `📄 _Sending your shipping label & receipt..._`
     )
     await dispatchAllRiders(phone, orderRef, newData, fare, pickup, dropoff, "cash", userName)
   } else {
@@ -496,7 +520,8 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
       `🔗 Track order: ${env.APP_URL}/track/${orderRef}\n\n` +
       `💳 *Pay here:*\n${link.paymentUrl}\n\n` +
       `⏳ _Link expires in 30 minutes_\n` +
-      `_Type_ *resend* _if you need a new link_`
+      `_Type_ *resend* _if you need a new link_\n\n` +
+      `📄 _Sending your shipping label & receipt..._`
     )
     await notifyAdmin(
       `📦 New delivery!\n` +
@@ -506,6 +531,15 @@ async function executeDelivery(phone: string, userName: string, data: Conversati
       `Fare: ₦${fare.totalFare.toLocaleString()} (online — awaiting payment)`
     )
   }
+
+  // Send customer PDF (fire-and-forget — don't block the confirmation flow)
+  generateCustomerPDF(pdfData)
+    .then(b64 => sendDocumentBase64(
+      phone, b64, "application/pdf",
+      `LT-ShippingLabel-${orderRef}.pdf`,
+      `📄 Your shipping label & receipt for order ${orderRef}`
+    ))
+    .catch(e => console.error("[pdf] Customer PDF error:", e))
 }
 
 // ─── Create errand order ─────────────────────────────────────────────────────

@@ -290,6 +290,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-04-04 | fix: fare display, paystack webhook, cash payment fallback |
 | 2026-04-04 | fix: remove WAITING_RIDER from LEGACY_DELIVERY_STATES |
 | 2026-04-04 | fix: stop AI latching onto stale/history addresses as dropoff |
 | 2026-04-04 | fix: resolve WAITING_RIDER lockout and Cantrack re-login loop |
@@ -299,7 +300,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-04-04 | feat: replace rigid state machine with fully conversational AI bot |
 | 2026-04-03 | fix: correct Cantrack endpoint, method, params and MDS token |
 | 2026-04-03 | fix: Turso migration — auto-create tables on startup, separate TURSO_DATABASE_URL |
-| 2026-04-03 | feat: switch from SQLite file to Turso (libSQL) cloud database |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*

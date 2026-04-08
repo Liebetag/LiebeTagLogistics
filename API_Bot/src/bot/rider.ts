@@ -1,7 +1,8 @@
 // src/bot/rider.ts
 // Rider-side bot handler
 
-import { sendText, sendLocation } from "../services/evolution.ts"
+import { sendText, sendLocation, sendDocumentBase64 } from "../services/evolution.ts"
+import { generateRiderPDF, maskOrderNumber } from "../utils/pdf.ts"
 import { getState, setState, updateData, db } from "./states.ts"
 import { cantrack } from "../services/cantrack.ts"
 import { notifyAdmin, genDeliveryCode, gmapsLink, deliveryQuote, backHint } from "./utils.ts"
@@ -124,32 +125,39 @@ export async function handleRider(
   if (["pickup", "picked_up", "picked up", "collected", "got it"].includes(lower)) {
     const current  = data.currentOrder as CurrentOrder | undefined
     const orderRef = current?.orderRef ?? data.orderRef ?? ""
+    // Look up the order number from DB so we can show the masked version
+    let maskedNum = "XXXXXXXXXXXXXXXX"
     if (orderRef) {
-      await setState(phone, "RIDER_AWAITING_PICKUP_CONFIRM", data, "rider")
-      await sendText(phone,
-        `📦 *Confirm pickup for order* \`${orderRef}\`\n\n` +
-        `Type the *16-digit order number* from the shipping label:\n\n` +
-        `_Example: 20260321XXXXXXXX_\n\nAfter confirming, send a *photo* of the package.\n\n` +
-        `_Type_ *cancel* _if there is a problem_`
-      )
-    } else {
-      await setState(phone, "RIDER_AWAITING_PICKUP_CONFIRM", data, "rider")
-      await sendText(phone,
-        `📦 *Confirm package pickup*\n\nType the *16-digit order number* from the shipping label:\n\n` +
-        `_Example: 20260321XXXXXXXX_\n\n_Type_ *cancel* _if there is a problem_`
-      )
+      const dbOrder = await db.order.findFirst({ where: { orderRef }, select: { orderNumber: true } })
+      if (dbOrder?.orderNumber) maskedNum = maskOrderNumber(dbOrder.orderNumber)
     }
+    await setState(phone, "RIDER_AWAITING_PICKUP_CONFIRM", data, "rider")
+    await sendText(phone,
+      `📦 *Confirm pickup${orderRef ? ` for \`${orderRef}\`` : ""}*\n\n` +
+      `Order number on label: \`${maskedNum}\`\n\n` +
+      `You can confirm by:\n` +
+      `• Typing the *last 5 digits* of the order number\n` +
+      `• Typing the *full 16-digit* number\n` +
+      `• 📷 *Sending a photo* of the shipping label\n\n` +
+      `_Type_ *cancel* _if there is a problem_`
+    )
     return
   }
 
-  // Order number entry for pickup
+  // Order number entry for pickup (text-based: full 16 digits OR last 5)
   if (state === "RIDER_AWAITING_PICKUP_CONFIRM") {
     const digits = text.replace(/\D/g, "")
-    if (digits.length === 16) {
-      const order = await db.order.findFirst({ where: { orderNumber: digits } })
+    if (digits.length === 5 || digits.length === 16) {
+      const order = await db.order.findFirst({
+        where: digits.length === 16
+          ? { orderNumber: digits }
+          : { orderNumber: { endsWith: digits } },
+      })
       if (!order) {
         await sendText(phone,
-          `❌ *Order not found:* \`${digits}\`\n\nCheck the shipping label carefully.\n\n_Type_ *cancel* _if there is a problem_`
+          `❌ *No order found for:* \`${digits}\`\n\nCheck the shipping label carefully.\n\n` +
+          `• Type the last *5 digits* from the label\n• Or send a 📷 *photo* of the label\n\n` +
+          `_Type_ *cancel* _if there is a problem_`
         )
         return
       }
@@ -157,22 +165,19 @@ export async function handleRider(
       const expectedRef = current?.orderRef ?? data.orderRef ?? ""
       if (expectedRef && order.orderRef.toUpperCase() !== expectedRef.toUpperCase()) {
         await sendText(phone,
-          `⚠️ *Wrong package!*\n\nOrder \`${digits}\` belongs to a different delivery.\n` +
-          `Your assigned order is \`${expectedRef}\`.\n\n_Type_ *cancel* _if there is a problem_`
+          `⚠️ *Wrong package!*\n\nThat number belongs to order \`${order.orderRef}\`, not your assigned \`${expectedRef}\`.\n\n` +
+          `_Type_ *cancel* _if there is a problem_`
         )
         return
       }
-      await updateData(phone, { pickupOrderNumber: digits })
-      await setState(phone, "RIDER_AWAITING_PICKUP_PHOTO", { ...data, pickupOrderNumber: digits }, "rider")
+      await confirmPickupReady(phone, data, order.orderNumber)
+    } else if (digits.length > 0) {
       await sendText(phone,
-        `✅ *Order confirmed:* \`${digits}\`\n\n📷 *Send a photo of the package now.*\n\n` +
-        `_Tap 📎 → Camera or Gallery_\n\n⚠️ _Photo is required to proceed_`
-      )
-    } else {
-      await sendText(phone,
-        `❓ Type the *16-digit order number* from the label.\n_Looks like: 20260321XXXXXXXX_\n\n_Type_ *cancel* _if there is a problem_`
+        `❓ Type the *last 5 digits* of the order number from the label, or send a 📷 *photo* of the label.\n\n` +
+        `_Type_ *cancel* _if there is a problem_`
       )
     }
+    // Zero digits = text message (not a number) — handled by photo path or ignored
     return
   }
 
@@ -362,6 +367,37 @@ async function riderAccept(phone: string, job: PendingJob, data: ConversationDat
   )
 
   await notifyAdmin(`✅ Rider accepted\nOrder: ${orderRef}\nRider: ${phone} → Customer: ${customerPhone}\nPayment: ${payType} - ${isPaid ? "confirmed" : "pending"}`)
+
+  // Send rider receipt PDF (fire-and-forget)
+  const dbOrder = await db.order.findFirst({ where: { orderRef } })
+  if (dbOrder) {
+    generateRiderPDF({
+      orderRef,
+      orderNumber:    dbOrder.orderNumber,
+      senderName:     custData.senderName ?? "",
+      senderPhone:    customerPhone,
+      recipientName:  recipName,
+      recipientPhone: recipPhone,
+      pickupAddress:  pickup?.address  ?? "",
+      dropoffAddress: dropoff?.address ?? "",
+      packageDesc:    currentOrder.packageDesc,
+      weightKg:       dbOrder.weightKg,
+      fragile:        dbOrder.fragile,
+      deliveryType:   dbOrder.deliveryType,
+      fareTotal:      total,
+      riderEarnings:  riderCut,
+      commission,
+      paymentType:    payType,
+      paymentStatus:  isPaid ? "confirmed" : "pending",
+      createdAt:      dbOrder.createdAt,
+    })
+      .then(b64 => sendDocumentBase64(
+        phone, b64, "application/pdf",
+        `LT-RiderCopy-${orderRef}.pdf`,
+        `🏍️ Your job receipt for ${orderRef}`
+      ))
+      .catch(e => console.error("[pdf] Rider PDF error:", e))
+  }
 }
 
 async function handleArrival(phone: string, data: ConversationData, state: string) {
@@ -405,6 +441,17 @@ async function confirmArrival(phone: string, order: CurrentOrder, data: Conversa
     `⏰ Waiting charge: ₦100 per 10 minutes.\n\nType *pickup* when you have the package.`
   )
   await notifyAdmin(`📍 Rider arrived\nRider: ${phone} | Order: ${order.orderRef} | ${arriveTime}`)
+}
+
+// Shared step: order number verified — prompt for photo
+async function confirmPickupReady(phone: string, data: ConversationData, orderNumber: string) {
+  await updateData(phone, { pickupOrderNumber: orderNumber })
+  await setState(phone, "RIDER_AWAITING_PICKUP_PHOTO", { ...data, pickupOrderNumber: orderNumber }, "rider")
+  await sendText(phone,
+    `✅ *Order confirmed:* \`${orderNumber}\`\n\n` +
+    `📷 *Now send a photo of the package.*\n\n` +
+    `_Tap 📎 → Camera or Gallery_\n\n⚠️ _Photo is required to proceed_`
+  )
 }
 
 async function confirmPickupByOrderNumber(phone: string, data: ConversationData, orderNumber: string) {

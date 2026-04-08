@@ -176,3 +176,42 @@ export async function processAIMessage(
     }
   }
 }
+
+/**
+ * Use Claude Vision to extract a 16-digit order number from a photo of a
+ * shipping label or receipt. Returns the digits string or null if not found.
+ */
+export async function extractOrderNumberFromPhoto(imageBase64: string): Promise<string | null> {
+  if (!env.ANTHROPIC_KEY) return null
+  try {
+    const response = await client.messages.create({
+      model:      "claude-haiku-4-5-20251001",
+      max_tokens: 64,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type:       "image",
+            source: {
+              type:       "base64",
+              media_type: "image/jpeg",
+              data:       imageBase64,
+            },
+          },
+          {
+            type: "text",
+            text: "Look at this shipping label or receipt image. Find the 16-digit order number (it looks like 2026XXXXXXXXXXXX — starts with the year). Reply with ONLY the 16 digits and nothing else. If you cannot find it, reply with the word NONE.",
+          },
+        ],
+      }],
+    })
+
+    const raw = response.content[0]?.type === "text" ? response.content[0].text.trim() : ""
+    const digits = raw.replace(/\D/g, "")
+    if (digits.length === 16) return digits
+    return null
+  } catch (e: any) {
+    console.error("[ai] extractOrderNumberFromPhoto error:", e?.message ?? e)
+    return null
+  }
+}

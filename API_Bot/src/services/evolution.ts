@@ -57,6 +57,18 @@ export async function sendDocument(
   })
 }
 
+export async function sendDocumentBase64(
+  phone: string, base64: string, mimeType: string, filename: string, caption = ""
+) {
+  return post(`/message/sendMedia/${INST}`, {
+    number:    phone,
+    mediatype: "document",
+    media:     `data:${mimeType};base64,${base64}`,
+    fileName:  filename,
+    caption,
+  })
+}
+
 export async function sendImage(
   phone: string, url: string, caption = ""
 ) {

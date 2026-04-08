@@ -30,6 +30,7 @@ class CantrackClient {
   private liveCache     = new Map<string, GPSLocation>()
   private pollingTimer: ReturnType<typeof setInterval> | null = null
   private lastPollOk    = false
+  private lastLoginAt   = 0   // epoch ms — rate-limits re-login attempts
 
   // ─── Session cookies (can be refreshed via API) ───────────────────────────
   updateCookies(session: string, seckey = "", bmap = "") {
@@ -61,9 +62,13 @@ class CantrackClient {
 
   private isSessionExpired(text: string) {
     const t = text.trim().toLowerCase()
-    return t.includes("loginouts") || t.includes("window.location") ||
+    const expired = t.includes("loginouts") || t.includes("window.location") ||
            t.startsWith("<!doctype") || t.startsWith("<html") ||
            t.includes("login.aspx")
+    if (expired) {
+      console.warn("[cantrack] ⚠️  Session-expired response detected. Preview:", text.slice(0, 120).replace(/\s+/g, " "))
+    }
+    return expired
   }
 
   // ─── Login via username + password (form POST) ───────────────────────────
@@ -117,10 +122,11 @@ class CantrackClient {
 
       if (session) {
         this.sessionCookie = session
-        console.log(`[cantrack] ✅ Login OK — session: ${session.slice(0, 8)}…`)
+        this.lastLoginAt   = Date.now()
+        console.log(`[cantrack] ✅ Login OK — session: ${session.slice(0, 8)}… SECKEY:${seckey ? "yes" : "NO"} BMAP:${bmap ? "yes" : "NO"}`)
       }
-      if (seckey) { this.seckeyCookie = seckey; console.log("[cantrack] ✅ SECKEY obtained") }
-      if (bmap)   { this.bmapCookie   = bmap;   console.log("[cantrack] ✅ BMAP obtained") }
+      if (seckey) this.seckeyCookie = seckey
+      if (bmap)   this.bmapCookie   = bmap
 
       // Verify: if SECKEY set, login succeeded
       if (seckey) return true
@@ -214,7 +220,14 @@ class CantrackClient {
     let text = await attempt()
 
     if (this.isSessionExpired(text)) {
+      const now      = Date.now()
+      const cooldown = 90_000  // don't re-login more than once every 90s
+      if (now - this.lastLoginAt < cooldown) {
+        console.warn(`[cantrack] ⏳ Session expired but last login was ${Math.round((now - this.lastLoginAt) / 1000)}s ago — skipping re-login (using cache)`)
+        return [...this.liveCache.values()]
+      }
       console.warn("[cantrack] Session expired — re-logging in…")
+      this.lastLoginAt = now
       const ok = await this.login()
       if (ok) text = await attempt()
       else {
@@ -240,7 +253,7 @@ class CantrackClient {
       console.log(`[cantrack] 📡 Poll OK — ${results.length} tracker(s) live`)
       _broadcast?.(results)
     } else {
-      console.warn("[cantrack] ⚠️  Poll returned 0 locations (auth ok but no data)")
+      console.warn("[cantrack] ⚠️  Poll returned 0 locations. Response preview:", text.slice(0, 200).replace(/\s+/g, " "))
     }
 
     return results
