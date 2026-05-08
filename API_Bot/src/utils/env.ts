@@ -42,6 +42,8 @@ export const env = {
   // AI — accept both ANTHROPIC_API_KEY and ANTHROPIC_KEY so either name works in Render
   ANTHROPIC_KEY:    optional("ANTHROPIC_API_KEY", "") || optional("ANTHROPIC_KEY", ""),
   OPENAI_KEY:       optional("OPENAI_API_KEY", "") || optional("OPENAI_KEY", ""),
+  // Groq — used for voice transcription (free, very fast Whisper-large-v3-turbo)
+  GROQ_KEY:         optional("GROQ_API_KEY", "") || optional("GROQ_KEY", ""),
 
   // App
   APP_URL:          optional("APP_URL", "https://liebetaglogistics-api.onrender.com"),
@@ -62,4 +64,7 @@ if (!env.EVOLUTION_KEY) {
 }
 if (!env.PAYSTACK_SECRET) {
   console.warn("⚠️  WARNING: PAYSTACK_SECRET_KEY is not set. Payment links will fail.")
+}
+if (!env.GROQ_KEY && !env.OPENAI_KEY) {
+  console.warn("⚠️  WARNING: GROQ_API_KEY and OPENAI_API_KEY are not set. Voice notes cannot be transcribed.")
 }

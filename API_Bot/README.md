@@ -28,7 +28,7 @@ Liebe Tag Logistics is a WhatsApp-first delivery and errand service operating in
 | Database | [Turso](https://turso.tech) (libSQL cloud SQLite) via Prisma + `@prisma/adapter-libsql` |
 | WhatsApp | [Evolution API v2](https://evolution-api.com) |
 | AI | Claude Haiku (`claude-haiku-4-5-20251001`) via Anthropic SDK |
-| Voice | OpenAI Whisper (voice note transcription) |
+| Voice | Groq Whisper (`whisper-large-v3-turbo`) with OpenAI Whisper fallback |
 | Payments | [Paystack](https://paystack.com) |
 | GPS | Cantrack portal (`cantrackportal.com`) — cookie-authenticated polling |
 | Geocoding | Nominatim (OpenStreetMap) + Abuja landmark database |
@@ -56,7 +56,7 @@ src/
 │   ├── paystack.ts          # Payment link generation + webhook verification
 │   ├── cantrack.ts          # GPS tracker polling + cache + WebSocket broadcast
 │   ├── proximity.ts         # Proximity alerts (≤1.5km from dropoff)
-│   └── whisper.ts           # Voice note transcription
+│   └── nlp.ts               # Intent helpers + Groq/OpenAI voice transcription
 ├── pricing/
 │   └── index.ts             # Fare calculation + haversine distance
 ├── geocoding/
@@ -104,7 +104,8 @@ bun dev              # hot-reload via --watch
 | `EVOLUTION_API_URL` | Evolution API base URL |
 | `EVOLUTION_API_KEY` | Evolution API global key |
 | `EVOLUTION_INSTANCE` | Evolution API instance name (default `liebe-tag`) |
-| `OPENAI_API_KEY` | OpenAI API key (Whisper voice note transcription — optional) |
+| `GROQ_API_KEY` | Groq API key for primary voice transcription (`whisper-large-v3-turbo`) |
+| `OPENAI_API_KEY` | Optional OpenAI API key for fallback Whisper transcription |
 | `PAYSTACK_SECRET_KEY` | Paystack secret key |
 | `PAYSTACK_PUBLIC_KEY` | Paystack public key |
 | `CANTRACK_SCHOOL_ID` | Cantrack school/account ID |
@@ -290,6 +291,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-04-09 | feat: PDF shipping label/receipt, photo OCR pickup confirm, cantrack fix |
 | 2026-04-04 | fix: fare display, paystack webhook, cash payment fallback |
 | 2026-04-04 | fix: remove WAITING_RIDER from LEGACY_DELIVERY_STATES |
 | 2026-04-04 | fix: stop AI latching onto stale/history addresses as dropoff |
@@ -299,7 +301,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-04-04 | feat: smart AI bot, tracking page, photo mandatory, proximity alerts |
 | 2026-04-04 | feat: replace rigid state machine with fully conversational AI bot |
 | 2026-04-03 | fix: correct Cantrack endpoint, method, params and MDS token |
-| 2026-04-03 | fix: Turso migration — auto-create tables on startup, separate TURSO_DATABASE_URL |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*

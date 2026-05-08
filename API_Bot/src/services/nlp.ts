@@ -106,13 +106,44 @@ export function isErrandIntent(text: string): boolean {
 }
 
 export async function transcribeVoice(audioBuffer: Buffer): Promise<string> {
+  if (!env.GROQ_KEY && !env.OPENAI_KEY) {
+    console.warn("[nlp] No GROQ_API_KEY or OPENAI_API_KEY set; voice transcription disabled")
+    return ""
+  }
+
+  const file = () => new File([audioBuffer], "voice.ogg", { type: "audio/ogg" })
+
+  // Groq first: OpenAI-compatible Whisper endpoint, much faster and cheaper.
+  if (env.GROQ_KEY) {
+    try {
+      const { OpenAI } = await import("openai")
+      const groq = new OpenAI({
+        apiKey:  env.GROQ_KEY,
+        baseURL: "https://api.groq.com/openai/v1",
+      })
+      const resp = await groq.audio.transcriptions.create({
+        file: file(),
+        model: "whisper-large-v3-turbo",
+        language: "en",
+        response_format: "json",
+      })
+      const text = resp.text?.trim() ?? ""
+      if (text) return text
+      console.warn("[nlp] Groq transcription returned empty text; falling back to OpenAI")
+    } catch (e) {
+      console.error("[nlp] Groq Whisper error, falling back to OpenAI:", e)
+    }
+  }
+
   if (!env.OPENAI_KEY) return ""
+
   try {
     const { OpenAI } = await import("openai")
     const openai = new OpenAI({ apiKey: env.OPENAI_KEY })
-    const file   = new File([audioBuffer], "voice.ogg", { type: "audio/ogg" })
     const resp   = await openai.audio.transcriptions.create({
-      file, model: "whisper-1", language: "en",
+      file: file(),
+      model: "whisper-1",
+      language: "en",
     })
     return resp.text.trim()
   } catch (e) {
