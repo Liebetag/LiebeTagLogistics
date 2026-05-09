@@ -42,7 +42,7 @@ registerBroadcast((locations: GPSLocation[]) => {
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 app.use("*", cors({
   origin:  env.ALLOWED_ORIGINS.split(","),
-  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowMethods: ["GET","POST","PUT","DELETE","OPTIONS"],
 }))
 
 // ─── Auth middleware ───────────────────────────────────────────────────────────

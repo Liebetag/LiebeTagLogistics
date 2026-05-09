@@ -278,7 +278,7 @@ async function processErrandOnlinePayment(phone: string, data: ConversationData)
     taskDescription: data.taskDescription ?? "",
     errandFee: fare.totalFee, itemCost: cash, totalCharge: total,
     paymentType: "online", runnerNeedsCash: data.runnerNeedsCash ?? false,
-    cashProvided: cash, errandDeadline: data.errandDeadline,
+    cashProvided: cash, deadline: data.errandDeadline,
   }}).catch(() => {})
 
   const etype = ERRAND_TYPES[data.errandType ?? "OTHER"]!
@@ -309,7 +309,7 @@ async function processErrandCashPayment(phone: string, data: ConversationData) {
     taskDescription: data.taskDescription ?? "",
     errandFee: fare.totalFee, itemCost: cash, totalCharge: total,
     paymentType: "cash", runnerNeedsCash: data.runnerNeedsCash ?? false,
-    cashProvided: cash, errandDeadline: data.errandDeadline,
+    cashProvided: cash, deadline: data.errandDeadline,
   }}).catch(() => {})
 
   const etype = ERRAND_TYPES[data.errandType ?? "OTHER"]!
