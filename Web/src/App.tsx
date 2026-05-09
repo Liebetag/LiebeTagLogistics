@@ -8,6 +8,7 @@ import LiveMap   from "./pages/LiveMap.tsx"
 import Orders    from "./pages/Orders.tsx"
 import Errands   from "./pages/Errands.tsx"
 import Riders    from "./pages/Riders.tsx"
+import Customers from "./pages/Customers.tsx"
 
 export default function App() {
   const [connected, setConnected] = useState(false)
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="/orders"  element={<Orders />}    />
           <Route path="/errands" element={<Errands />}   />
           <Route path="/riders"  element={<Riders />}    />
+          <Route path="/customers" element={<Customers />} />
         </Routes>
       </main>
     </div>

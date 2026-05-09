@@ -1,6 +1,6 @@
 // src/components/Sidebar.tsx
 import { NavLink } from "react-router-dom"
-import { LayoutDashboard, Map, Package, ClipboardList, Users, LogOut, Truck } from "lucide-react"
+import { LayoutDashboard, Map, Package, ClipboardList, Users, LogOut, Truck, UserRound } from "lucide-react"
 import clsx from "clsx"
 
 const links = [
@@ -9,6 +9,7 @@ const links = [
   { to: "/orders",  icon: Package,         label: "Orders"     },
   { to: "/errands", icon: ClipboardList,   label: "Errands"    },
   { to: "/riders",  icon: Users,           label: "Riders"     },
+  { to: "/customers", icon: UserRound,     label: "Customers"  },
 ]
 
 export default function Sidebar() {

@@ -1,16 +1,26 @@
 // src/pages/Riders.tsx
 import { useEffect, useState } from "react"
-import { Users, Phone, Bike, TrendingUp } from "lucide-react"
-import { api, type Rider } from "../services/api.ts"
+import { Users, Phone, Bike, TrendingUp, Check, X, Unlink } from "lucide-react"
+import { api, type AllocationRequest, type Rider } from "../services/api.ts"
 
 export default function Riders() {
   const [riders,  setRiders]  = useState<Rider[]>([])
+  const [requests, setRequests] = useState<AllocationRequest[]>([])
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
+  const load = () => {
     setLoading(true)
-    api.getRiders().then(d => setRiders(d.riders)).catch(() => {}).finally(() => setLoading(false))
-  }, [])
+    Promise.all([api.getRiders(), api.allocationRequests("pending")])
+      .then(([r, a]) => { setRiders(r.riders); setRequests(a.requests) })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  const approve = async (id: string) => { await api.approveAllocation(id); load() }
+  const reject = async (id: string) => { await api.rejectAllocation(id); load() }
+  const unassign = async (phone: string) => { await api.unassignBike(phone); load() }
 
   const totalEarned  = riders.reduce((s, r) => s + r.totalEarned,  0)
   const totalBalance = riders.reduce((s, r) => s + r.balance, 0)
@@ -34,6 +44,31 @@ export default function Riders() {
           <p className="text-xs text-slate-400 mt-1">All-time Earnings</p>
         </div>
       </div>
+
+      {requests.length > 0 && (
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">Bike Allocation Requests</h2>
+            <span className="badge-yellow">{requests.length} pending</span>
+          </div>
+          <div className="space-y-2">
+            {requests.map(req => (
+              <div key={req.id} className="flex flex-wrap items-center gap-3 border-t border-dark-border pt-3 first:border-t-0 first:pt-0">
+                <div className="flex-1 min-w-56">
+                  <p className="font-medium">{req.riderName || req.riderPhone}</p>
+                  <p className="text-xs text-slate-400">+{req.riderPhone} requested {req.deviceLabel}</p>
+                </div>
+                <button onClick={() => approve(req.id)} className="btn-primary flex items-center gap-1.5 text-xs px-3 py-1.5">
+                  <Check size={12} /> Approve
+                </button>
+                <button onClick={() => reject(req.id)} className="btn-ghost flex items-center gap-1.5 text-xs px-3 py-1.5">
+                  <X size={12} /> Reject
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Rider cards */}
       {loading && <p className="text-slate-400 text-sm text-center py-8">Loading…</p>}
@@ -79,6 +114,12 @@ export default function Riders() {
                 className="btn-primary flex items-center gap-1.5 text-xs flex-1 justify-center py-1.5">
                 WhatsApp
               </a>
+              {r.deviceId && (
+                <button onClick={() => unassign(r.phone)}
+                  className="btn-ghost flex items-center gap-1.5 text-xs flex-1 justify-center py-1.5">
+                  <Unlink size={12} /> Unassign
+                </button>
+              )}
             </div>
           </div>
         ))}

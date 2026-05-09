@@ -74,6 +74,19 @@ const TABLES = [
     status TEXT NOT NULL DEFAULT 'active',
     startedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, endedAt DATETIME
   )`,
+  `CREATE TABLE IF NOT EXISTS rider_locations (
+    riderPhone TEXT PRIMARY KEY, lat REAL NOT NULL, lng REAL NOT NULL,
+    accuracy REAL, source TEXT NOT NULL DEFAULT 'whatsapp',
+    sharedLive INTEGER NOT NULL DEFAULT 0,
+    updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS bike_allocation_requests (
+    id TEXT PRIMARY KEY, riderPhone TEXT NOT NULL, riderName TEXT NOT NULL DEFAULT '',
+    deviceId TEXT NOT NULL, deviceLabel TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    requestedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewedAt DATETIME, reviewedBy TEXT, note TEXT NOT NULL DEFAULT ''
+  )`,
 ]
 
 export async function runMigrations() {

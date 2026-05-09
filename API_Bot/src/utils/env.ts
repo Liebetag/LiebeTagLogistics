@@ -65,6 +65,6 @@ if (!env.EVOLUTION_KEY) {
 if (!env.PAYSTACK_SECRET) {
   console.warn("⚠️  WARNING: PAYSTACK_SECRET_KEY is not set. Payment links will fail.")
 }
-if (!env.GROQ_KEY && !env.OPENAI_KEY) {
-  console.warn("⚠️  WARNING: GROQ_API_KEY and OPENAI_API_KEY are not set. Voice notes cannot be transcribed.")
+if (!env.GROQ_KEY) {
+  console.warn("⚠️  WARNING: GROQ_API_KEY is not set. Voice notes cannot be transcribed.")
 }

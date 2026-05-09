@@ -15,6 +15,7 @@ import { getMediaBase64 } from "../services/evolution.ts"
 import { calculateFare, RIDER_PCT, waitingCharge } from "../pricing/index.ts"
 import { db } from "./states.ts"
 import { env } from "../utils/env.ts"
+import { isKnownRider } from "../services/rider-ops.ts"
 import type { ConversationData, Location } from "../types/index.ts"
 
 // States handled by legacy flow handlers (post-booking mechanical states)
@@ -49,8 +50,9 @@ export async function handleMessage(
   let text  = (message || "").trim()
   let lower = text.toLowerCase().trim()
 
+  const knownRider = await isKnownRider(phone)
   const role = env.ADMIN_PHONES.includes(phone) ? "admin"
-             : env.RIDER_PHONES.includes(phone)  ? "rider"
+             : knownRider                    ? "rider"
              : "customer"
 
   // Track last seen

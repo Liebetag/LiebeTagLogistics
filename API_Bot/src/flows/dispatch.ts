@@ -5,7 +5,7 @@ import { sendText, sendLocation } from "../services/evolution.ts"
 import { getState, updateData } from "../bot/states.ts"
 import { gmapsLink, notifyAdmin } from "../bot/utils.ts"
 import type { ConversationData, FareBreakdown, ErrandFare, PendingJob } from "../types/index.ts"
-import { env } from "../utils/env.ts"
+import { listDispatchRiderPhones } from "../services/rider-ops.ts"
 
 const DTYPE_EMOJI: Record<string, string> = {
   PRIORITY: "⚡", SCHEDULED: "🗓️", NORMAL: "🚲",
@@ -57,7 +57,7 @@ export async function dispatchAllRiders(
     orderType:      "delivery",
   }
 
-  for (const riderPhone of env.RIDER_PHONES) {
+  for (const riderPhone of await listDispatchRiderPhones()) {
     const rState  = await getState(riderPhone)
     const pending = (rState.data.pendingJobs ?? []) as PendingJob[]
     await updateData(riderPhone, { pendingJobs: [...pending, jobSummary], pendingMode: null })
@@ -94,7 +94,7 @@ export async function dispatchAllRidersErrand(
     orderType:      "errand",
   }
 
-  for (const riderPhone of env.RIDER_PHONES) {
+  for (const riderPhone of await listDispatchRiderPhones()) {
     const rState  = await getState(riderPhone)
     const pending = (rState.data.pendingJobs ?? []) as PendingJob[]
     await updateData(riderPhone, { pendingJobs: [...pending, jobSummary], pendingMode: null })

@@ -96,6 +96,29 @@ export interface Rider {
   isActive:   boolean
 }
 
+export interface Customer {
+  id:         string
+  phone:      string
+  name:       string
+  role:       string
+  joinedAt:   string
+  lastSeen:   string
+  orderCount: number
+}
+
+export interface AllocationRequest {
+  id:          string
+  riderPhone:  string
+  riderName:   string
+  deviceId:    string
+  deviceLabel: string
+  status:      string
+  requestedAt: string
+  reviewedAt?: string
+  reviewedBy?: string
+  note:        string
+}
+
 export interface DashboardStats {
   activeOrders:  number
   gpsTrackers:   number
@@ -110,6 +133,11 @@ export const api = {
   searchOrders: (q: string) => get<{ count: number; orders: Order[] }>(`/orders/search?q=${encodeURIComponent(q)}`),
   getOrder:     (ref: string) => get<Order>(`/orders/${ref}`),
   searchErrands:(q: string) => get<{ count: number; errands: Errand[] }>(`/errands/search?q=${encodeURIComponent(q)}`),
+  searchCustomers:(q: string) => get<{ count: number; customers: Customer[] }>(`/customers/search?q=${encodeURIComponent(q)}`),
   getRiders:    () => get<{ count: number; riders: Rider[] }>("/riders"),
   riderBalance: (phone: string) => get<Rider>(`/riders/${phone}/balance`),
+  allocationRequests: (status = "pending") => get<{ count: number; requests: AllocationRequest[] }>(`/admin/allocation-requests?status=${encodeURIComponent(status)}`),
+  approveAllocation: (id: string) => post<{ ok: boolean; request: AllocationRequest }>(`/admin/allocation-requests/${id}/approve`, {}),
+  rejectAllocation:  (id: string, note = "") => post<{ ok: boolean }>(`/admin/allocation-requests/${id}/reject`, { note }),
+  unassignBike:      (phone: string) => post<{ ok: boolean }>(`/riders/${phone}/unassign-bike`, {}),
 }

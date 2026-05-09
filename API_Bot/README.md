@@ -28,7 +28,7 @@ Liebe Tag Logistics is a WhatsApp-first delivery and errand service operating in
 | Database | [Turso](https://turso.tech) (libSQL cloud SQLite) via Prisma + `@prisma/adapter-libsql` |
 | WhatsApp | [Evolution API v2](https://evolution-api.com) |
 | AI | Claude Haiku (`claude-haiku-4-5-20251001`) via Anthropic SDK |
-| Voice | Groq Whisper (`whisper-large-v3-turbo`) with OpenAI Whisper fallback |
+| Voice | Groq Whisper (`whisper-large-v3-turbo`) |
 | Payments | [Paystack](https://paystack.com) |
 | GPS | Cantrack portal (`cantrackportal.com`) — cookie-authenticated polling |
 | Geocoding | Nominatim (OpenStreetMap) + Abuja landmark database |
@@ -105,7 +105,7 @@ bun dev              # hot-reload via --watch
 | `EVOLUTION_API_KEY` | Evolution API global key |
 | `EVOLUTION_INSTANCE` | Evolution API instance name (default `liebe-tag`) |
 | `GROQ_API_KEY` | Groq API key for primary voice transcription (`whisper-large-v3-turbo`) |
-| `OPENAI_API_KEY` | Optional OpenAI API key for fallback Whisper transcription |
+| `OPENAI_API_KEY` | Optional for non-voice AI utilities; voice transcription uses Groq only |
 | `PAYSTACK_SECRET_KEY` | Paystack secret key |
 | `PAYSTACK_PUBLIC_KEY` | Paystack public key |
 | `CANTRACK_SCHOOL_ID` | Cantrack school/account ID |
@@ -291,6 +291,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-05-09 | Fix Cantrack GPS polling |
 | 2026-05-09 | feat: use Groq first for voice transcription |
 | 2026-04-09 | feat: PDF shipping label/receipt, photo OCR pickup confirm, cantrack fix |
 | 2026-04-04 | fix: fare display, paystack webhook, cash payment fallback |
@@ -300,7 +301,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-04-04 | Create README.md |
 | 2026-04-04 | bug fixes to AI conversational response |
 | 2026-04-04 | feat: smart AI bot, tracking page, photo mandatory, proximity alerts |
-| 2026-04-04 | feat: replace rigid state machine with fully conversational AI bot |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*

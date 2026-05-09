@@ -4,7 +4,14 @@
 import { sendText, sendLocation, sendDocumentBase64 } from "../services/evolution.ts"
 import { generateRiderPDF, maskOrderNumber } from "../utils/pdf.ts"
 import { getState, setState, updateData, db } from "./states.ts"
-import { cantrack } from "../services/cantrack.ts"
+import { resolveTrackerId } from "../services/cantrack.ts"
+import {
+  createAllocationRequest,
+  ensureRiderRecord,
+  saveRiderPhoneLocation,
+  setRiderOffline,
+  setRiderOnline,
+} from "../services/rider-ops.ts"
 import { notifyAdmin, genDeliveryCode, gmapsLink, deliveryQuote, backHint } from "./utils.ts"
 import { RIDER_PCT, waitingCharge } from "../pricing/index.ts"
 import type { ConversationData, PendingJob, CurrentOrder } from "../types/index.ts"
@@ -12,9 +19,59 @@ import { env } from "../utils/env.ts"
 
 export async function handleRider(
   phone: string, text: string, lower: string,
-  location: { lat: number; lng: number } | null,
+  location: { lat: number; lng: number; live?: boolean } | null,
   state: string, data: ConversationData
 ) {
+  if (location) {
+    await saveRiderPhoneLocation(phone, location.lat, location.lng, Boolean(location.live))
+    await sendText(phone,
+      `Location received. You are online for dispatch.\n\n` +
+      `Bike GPS will still be used first when your assigned Cantrack bike is live.\n` +
+      `Type *offline* when you stop work.`
+    )
+    return
+  }
+
+  if (["online", "go online", "start work", "available"].includes(lower)) {
+    const rider = await setRiderOnline(phone)
+    await setState(phone, "RIDER_IDLE", { ...data, deviceId: rider.deviceId || data.deviceId, queue: data.queue ?? [] }, "rider")
+    await sendText(phone,
+      `You are online.\n\n` +
+      (rider.deviceId
+        ? `Assigned bike: ${rider.deviceId.slice(0, 12)}...\nCantrack GPS will be used for live tracking.`
+        : `No bike assigned yet. Type *assign LT01* or share your WhatsApp live location while waiting for admin approval.`) +
+      `\n\nType *offline* to stop receiving jobs.`
+    )
+    return
+  }
+
+  if (["offline", "go offline", "stop work", "unavailable"].includes(lower)) {
+    await setRiderOffline(phone)
+    await sendText(phone, "You are offline. Location sharing and dispatch for your phone are paused.")
+    return
+  }
+
+  // GPS device allocation request. Admin approval makes the bike assignment permanent.
+  if (lower.startsWith("mydevice ") || lower.startsWith("assign ") || lower.startsWith("bike ")) {
+    const raw = text.replace(/^(mydevice|assign|bike)\s+/i, "").trim()
+    const deviceId = resolveTrackerId(raw)
+    if (!deviceId) {
+      await sendText(phone, "I couldn't match that bike. Try *assign LT01*, *assign LT02*, *assign LT03*, *assign LT04*, or *assign LT05*.")
+      return
+    }
+    const user = await db.user.findUnique({ where: { phone }, select: { name: true } }).catch(() => null)
+    const riderName = user?.name ?? ""
+    const requestId = await createAllocationRequest(phone, deviceId, riderName)
+    await ensureRiderRecord(phone, riderName)
+    await sendText(phone,
+      `Bike allocation request sent to admin.\n\n` +
+      `Bike: *${raw.toUpperCase()}*\nRequest: \`${requestId.slice(0, 8)}\`\n\n` +
+      `You can type *online* now, but this bike becomes your permanent tracker only after admin approval.`
+    )
+    await notifyAdmin(`Bike allocation request\nRider: ${phone}\nBike: ${raw.toUpperCase()}\nAdmin should approve from the dashboard.`)
+    return
+  }
+
   // GPS device registration
   if (lower.startsWith("mydevice ")) {
     const deviceId = text.split(" ", 2)[1]?.trim() ?? ""
@@ -245,14 +302,27 @@ export async function handleRider(
   }
 
   // Status
-  if (["1", "status", "my status", "earnings"].includes(lower)) {
+  if (false && ["1", "status", "my status", "earnings"].includes(lower)) {
     const queue   = (data.queue ?? []) as CurrentOrder[]
     const current = data.currentOrder as CurrentOrder | undefined
     await sendText(phone,
       `🏍️ *Rider Status*\n\nState: \`${state}\`\nDevice: \`${(data.deviceId ?? "Not linked").slice(0, 16)}\`\n` +
       `Items in bag: *${queue.length}*\n` +
-      (current?.orderRef ? `Delivering: \`${current.orderRef}\`\n` : "") +
+      (current?.orderRef ? `Delivering: \`${current?.orderRef}\`\n` : "") +
       `\n*Commands:*\n• *queue* — delivery bag\n• *pickup* — confirm collection\n• *delivered* — mark delivered\n• *arrive* — I'm at pickup`
+    )
+    return
+  }
+
+  if (["1", "status", "my status", "earnings"].includes(lower)) {
+    const queue = (data.queue ?? []) as CurrentOrder[]
+    const current = data.currentOrder as CurrentOrder | undefined
+    const rider = await db.rider.findUnique({ where: { phone } }).catch(() => null)
+    await sendText(phone,
+      `Rider Status\n\nState: \`${state}\`\nOnline: *${rider?.isActive ? "yes" : "no"}*\nBike: \`${(rider?.deviceId || data.deviceId || "Not assigned").slice(0, 16)}\`\n` +
+      `Items in bag: *${queue.length}*\n` +
+      (current?.orderRef ? `Delivering: \`${current?.orderRef}\`\n` : "") +
+      `\nCommands:\n- *online* / *offline*\n- *queue* - delivery bag\n- *pickup* - confirm collection\n- *delivered* - mark delivered\n- *arrive* - I'm at pickup`
     )
     return
   }
@@ -296,6 +366,8 @@ async function riderAccept(phone: string, job: PendingJob, data: ConversationDat
   const total     = fare?.totalFare ?? errandFare?.totalFee ?? 0
   const payType   = custData.paymentType ?? "online"
   const isPaid    = custConv.state === "WAITING_RIDER"
+  const riderRecord = await db.rider.findUnique({ where: { phone }, select: { deviceId: true } }).catch(() => null)
+  const deviceId = riderRecord?.deviceId || data.deviceId
 
   const senderName = custData.senderName ?? (await db.user.findUnique({ where: { phone: customerPhone } }))?.name ?? "Sender"
   const recipName  = custData.recipientName ?? ""
@@ -316,7 +388,7 @@ async function riderAccept(phone: string, job: PendingJob, data: ConversationDat
   }
 
   await setState(phone, "RIDER_ON_JOB", {
-    ...data, assignmentId: null,
+    ...data, assignmentId: undefined, deviceId,
     customerPhone, orderRef,
     fareTotal: total, paymentType: payType,
     paymentConfirmed: isPaid,
@@ -325,7 +397,7 @@ async function riderAccept(phone: string, job: PendingJob, data: ConversationDat
   }, "rider")
 
   await setState(customerPhone, "TRACKING", {
-    ...custData, deviceId: data.deviceId, riderPhone: phone, orderRef,
+    ...custData, deviceId, riderPhone: phone, orderRef,
     riderAcceptedAt: new Date().toISOString(),   // used for modification fee timing
   })
 
@@ -604,7 +676,8 @@ async function completeDelivery(phone: string, data: ConversationData) {
     }, "rider")
     await sendText(phone, `🎒 *${allQueue.length} item(s)* still to deliver.\nType *queue* to view or select next.`)
   } else {
-    await setState(phone, "RIDER_IDLE", { deviceId: data.deviceId }, "rider")
+    const rider = await db.rider.findUnique({ where: { phone }, select: { deviceId: true } }).catch(() => null)
+    await setState(phone, "RIDER_IDLE", { deviceId: rider?.deviceId || data.deviceId }, "rider")
     await sendText(phone, `🎉 *All deliveries complete!*\n\nEarnings: ₦${riderCut.toLocaleString()} added.\nType *status* to see your balance.`)
   }
 }

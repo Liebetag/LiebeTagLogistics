@@ -17,6 +17,19 @@ export const TRACKERS: Record<string, { label: string; imei: string; sim: string
   "c35c83a5e069496a80b0e1d3f1878062": { label: "LT05-ALEXANDER", imei: "868720065056487", sim: "09111848129" },
 }
 
+export function resolveTrackerId(input: string) {
+  const normalized = input.trim().toLowerCase()
+  if (TRACKERS[normalized]) return normalized
+  const compact = normalized.replace(/\s+/g, "")
+  for (const [deviceId, tracker] of Object.entries(TRACKERS)) {
+    const label = tracker.label.toLowerCase()
+    if (label === normalized || label.replace(/\s+/g, "") === compact) return deviceId
+    if (label.split("-")[0]?.toLowerCase() === compact) return deviceId
+    if (tracker.imei === normalized || tracker.sim === normalized) return deviceId
+  }
+  return ""
+}
+
 type BroadcastFn = (locations: GPSLocation[]) => void
 let _broadcast: BroadcastFn | null = null
 export function registerBroadcast(fn: BroadcastFn) { _broadcast = fn }

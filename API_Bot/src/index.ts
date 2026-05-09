@@ -11,6 +11,13 @@ import { cantrack, TRACKERS, registerBroadcast } from "./services/cantrack.ts"
 import { getMediaBase64 } from "./services/evolution.ts"
 import { checkProximityNotifications } from "./services/proximity.ts"
 import { renderTrackingPage } from "./utils/tracking-page.ts"
+import {
+  approveAllocationRequest,
+  getRiderPhoneLocation,
+  listAllocationRequests,
+  rejectAllocationRequest,
+  unassignBike,
+} from "./services/rider-ops.ts"
 import type { GPSLocation } from "./types/index.ts"
 
 const app = new Hono()
@@ -54,7 +61,7 @@ app.get("/", async c => {
     service:        "Liebe Tag Logistics API v4 (TypeScript/Bun)",
     activeOrders:   order,
     gpsTrackers:    Object.keys(TRACKERS).length,
-    gpsLive:        cached.length,
+    gpsLive:        cached.filter(t => t.status !== "offline").length,
     gpsPolling:     cantrack.isPolling(),
     gpsLastOk:      cantrack.lastPollSuccess(),
   })
@@ -200,6 +207,45 @@ app.post("/admin/cantrack/session", requireApiKey, async c => {
   return c.json({ ok: true, trackersFound: locs.length })
 })
 
+app.get("/admin/overview", requireApiKey, async c => {
+  const [orders, errands, riders, customers, allocationRequests] = await Promise.all([
+    db.order.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
+    db.errand.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
+    db.rider.findMany({ orderBy: { createdAt: "desc" } }),
+    db.user.findMany({ where: { role: "customer" }, orderBy: { lastSeen: "desc" }, take: 50 }),
+    listAllocationRequests("pending"),
+  ])
+  const trackers = cantrack.getAllCached().length ? cantrack.getAllCached() : await cantrack.fetchAll()
+  const bikes = Object.entries(TRACKERS).map(([deviceId, meta]) => {
+    const rider = riders.find(r => r.deviceId === deviceId)
+    const tracker = trackers.find(t => t.deviceId === deviceId)
+    return { deviceId, ...meta, riderPhone: rider?.phone ?? "", riderName: rider?.name ?? "", tracker }
+  })
+  return c.json({ orders, errands, riders, customers, allocationRequests, bikes })
+})
+
+app.get("/admin/allocation-requests", requireApiKey, async c => {
+  const status = c.req.query("status") ?? ""
+  const requests = await listAllocationRequests(status)
+  return c.json({ count: requests.length, requests })
+})
+
+app.post("/admin/allocation-requests/:id/approve", requireApiKey, async c => {
+  const id = c.req.param("id")
+  const reviewedBy = c.req.header("X-Admin-Phone") ?? "admin"
+  const result = await approveAllocationRequest(id, reviewedBy)
+  if (!result) return c.json({ error: "Allocation request not found" }, 404)
+  return c.json({ ok: true, request: result })
+})
+
+app.post("/admin/allocation-requests/:id/reject", requireApiKey, async c => {
+  const id = c.req.param("id")
+  const body = await c.req.json().catch(() => ({})) as { note?: string }
+  const reviewedBy = c.req.header("X-Admin-Phone") ?? "admin"
+  await rejectAllocationRequest(id, reviewedBy, body.note ?? "")
+  return c.json({ ok: true })
+})
+
 // ─── Orders ───────────────────────────────────────────────────────────────────
 app.get("/orders/search", requireApiKey, async c => {
   const q      = c.req.query("q") ?? ""
@@ -224,6 +270,22 @@ app.get("/orders/:ref", requireApiKey, async c => {
   })
   if (!order) return c.json({ error: "Not found" }, 404)
   return c.json(order)
+})
+
+app.get("/customers/search", requireApiKey, async c => {
+  const q = c.req.query("q") ?? ""
+  const customers = await db.user.findMany({
+    where: {
+      role: "customer",
+      OR: [
+        { phone: { contains: q } },
+        { name: { contains: q } },
+      ],
+    },
+    orderBy: { lastSeen: "desc" },
+    take: 100,
+  })
+  return c.json({ count: customers.length, customers })
 })
 
 // ─── Errands ──────────────────────────────────────────────────────────────────
@@ -253,6 +315,12 @@ app.get("/riders/:phone/balance", requireApiKey, async c => {
   if (!rider) return c.json({ error: "Rider not found" }, 404)
   const entries = await db.ledgerEntry.findMany({ where: { riderPhone: phone }, orderBy: { createdAt: "desc" }, take: 20 })
   return c.json({ ...rider, recentTrips: entries })
+})
+
+app.post("/riders/:phone/unassign-bike", requireApiKey, async c => {
+  const { phone } = c.req.param()
+  await unassignBike(phone)
+  return c.json({ ok: true })
 })
 
 // ─── Public tracking page ─────────────────────────────────────────────────────
@@ -287,6 +355,14 @@ app.get("/track/:ref", async c => {
         riderLat   = gps.latitude
         riderLng   = gps.longitude
         riderSpeed = gps.speedKmh
+      }
+    }
+    if (riderLat === undefined || riderLng === undefined) {
+      const phoneGps = await getRiderPhoneLocation(riderPhone)
+      if (phoneGps) {
+        riderLat = phoneGps.latitude
+        riderLng = phoneGps.longitude
+        riderSpeed = 0
       }
     }
   }

@@ -240,3 +240,30 @@ model Assignment {
 
   @@map("assignments")
 }
+
+model RiderLocation {
+  riderPhone String   @id
+  lat        Float
+  lng        Float
+  accuracy   Float?
+  source     String   @default("whatsapp")
+  sharedLive Boolean  @default(false)
+  updatedAt  DateTime @default(now())
+
+  @@map("rider_locations")
+}
+
+model BikeAllocationRequest {
+  id          String    @id @default(cuid())
+  riderPhone  String
+  riderName   String    @default("")
+  deviceId    String
+  deviceLabel String    @default("")
+  status      String    @default("pending") // pending | approved | rejected
+  requestedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+  reviewedBy  String?
+  note        String    @default("")
+
+  @@map("bike_allocation_requests")
+}
