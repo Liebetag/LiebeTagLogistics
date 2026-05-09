@@ -135,12 +135,13 @@ export interface PendingJob {
 
 export interface GPSLocation {
   deviceId:   string
-  latitude:   number
-  longitude:  number
+  latitude:   number | null
+  longitude:  number | null
   speedKmh:   number
   heading:    number
   timestamp:  string
   battery?:   number
   signal?:    number
   label?:     string
+  status?:    "online" | "offline"
 }

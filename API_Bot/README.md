@@ -291,6 +291,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-05-09 | feat: use Groq first for voice transcription |
 | 2026-04-09 | feat: PDF shipping label/receipt, photo OCR pickup confirm, cantrack fix |
 | 2026-04-04 | fix: fare display, paystack webhook, cash payment fallback |
 | 2026-04-04 | fix: remove WAITING_RIDER from LEGACY_DELIVERY_STATES |
@@ -300,7 +301,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-04-04 | bug fixes to AI conversational response |
 | 2026-04-04 | feat: smart AI bot, tracking page, photo mandatory, proximity alerts |
 | 2026-04-04 | feat: replace rigid state machine with fully conversational AI bot |
-| 2026-04-03 | fix: correct Cantrack endpoint, method, params and MDS token |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*

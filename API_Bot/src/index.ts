@@ -283,7 +283,7 @@ app.get("/track/:ref", async c => {
     const rider = await db.rider.findUnique({ where: { phone: riderPhone }, select: { deviceId: true } })
     if (rider?.deviceId) {
       const gps = cantrack.getCache(rider.deviceId)
-      if (gps) {
+      if (gps && gps.latitude !== null && gps.longitude !== null) {
         riderLat   = gps.latitude
         riderLng   = gps.longitude
         riderSpeed = gps.speedKmh

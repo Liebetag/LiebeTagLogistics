@@ -33,12 +33,13 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface GPSTracker {
   deviceId:  string
-  latitude:  number
-  longitude: number
+  latitude:  number | null
+  longitude: number | null
   speedKmh:  number
   heading:   number
   timestamp: string
   label:     string
+  status?:   "online" | "offline"
   battery?:  number
 }
 

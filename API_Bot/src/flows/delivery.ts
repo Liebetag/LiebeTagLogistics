@@ -468,7 +468,7 @@ async function handleTracking(phone: string, lower: string, data: ConversationDa
     if (finalDevice) {
       const { cantrack } = await import("../services/cantrack.ts")
       const loc = await cantrack.fetchOne(finalDevice)
-      if (loc && loc.latitude !== 0) {
+      if (loc && loc.status !== "offline" && loc.latitude !== null && loc.longitude !== null) {
         const dropoff = data.dropoff!
         let etaMsg = ""
         if (dropoff) {

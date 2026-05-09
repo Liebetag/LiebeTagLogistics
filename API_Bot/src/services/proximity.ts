@@ -35,6 +35,7 @@ export async function checkProximityNotifications(locations: GPSLocation[]) {
 
       const gps = locations.find(l => l.deviceId === rider.deviceId)
       if (!gps) continue
+      if (gps.status === "offline" || gps.latitude === null || gps.longitude === null) continue
 
       // Parse dropoff
       let dropLat = 0, dropLng = 0, dropAddr = ""
