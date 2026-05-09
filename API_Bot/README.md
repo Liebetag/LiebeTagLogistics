@@ -291,6 +291,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-05-09 | Add rider location and admin allocation flow |
 | 2026-05-09 | Fix Cantrack GPS polling |
 | 2026-05-09 | feat: use Groq first for voice transcription |
 | 2026-04-09 | feat: PDF shipping label/receipt, photo OCR pickup confirm, cantrack fix |
@@ -300,7 +301,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-04-04 | fix: resolve WAITING_RIDER lockout and Cantrack re-login loop |
 | 2026-04-04 | Create README.md |
 | 2026-04-04 | bug fixes to AI conversational response |
-| 2026-04-04 | feat: smart AI bot, tracking page, photo mandatory, proximity alerts |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*

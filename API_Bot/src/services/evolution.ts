@@ -51,8 +51,10 @@ export async function sendDocument(
   return post(`/message/sendMedia/${INST}`, {
     number:   phone,
     mediatype: "document",
+    mimetype: "application/pdf",
     media:    url,
     fileName: filename,
+    file_name: filename,
     caption,
   })
 }
@@ -60,11 +62,14 @@ export async function sendDocument(
 export async function sendDocumentBase64(
   phone: string, base64: string, mimeType: string, filename: string, caption = ""
 ) {
+  const cleanBase64 = base64.replace(/^data:[^;]+;base64,/, "").replace(/\s/g, "")
   return post(`/message/sendMedia/${INST}`, {
     number:    phone,
     mediatype: "document",
-    media:     `data:${mimeType};base64,${base64}`,
+    mimetype:  mimeType,
+    media:     cleanBase64,
     fileName:  filename,
+    file_name: filename,
     caption,
   })
 }

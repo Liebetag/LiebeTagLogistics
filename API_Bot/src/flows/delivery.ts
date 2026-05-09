@@ -1,7 +1,7 @@
 // src/flows/delivery.ts
 // Full customer delivery booking flow
 
-import { sendText, sendLocation } from "../services/evolution.ts"
+import { sendText, sendLocation, sendDocumentBase64 } from "../services/evolution.ts"
 import { getState, setState, updateData, resetState, getUserName, setUserName, upsertUser, db } from "../bot/states.ts"
 import { geocode, reverseGeocode, suggestAddresses, inAbuja } from "../services/geocoding.ts"
 import { calculateFare, RIDER_PCT } from "../pricing/index.ts"
@@ -11,6 +11,7 @@ import { notifyAdmin, sendMenu, backHint, genTrackingRef, genOrderNumber, genDel
 import { dispatchAllRiders } from "./dispatch.ts"
 import type { ConversationData, Location } from "../types/index.ts"
 import { env } from "../utils/env.ts"
+import { generateCustomerPDF, type OrderPDFData } from "../utils/pdf.ts"
 
 export async function handleDelivery(
   phone: string, text: string, lower: string,
@@ -559,6 +560,26 @@ async function processOnlinePayment(phone: string, data: ConversationData) {
 
   // Pre-notify riders
   await dispatchAllRiders(phone, orderRef, data, fare, pickup, dropoff, "online", senderName)
+  sendCustomerPdf(phone, {
+    orderRef,
+    orderNumber: orderNum,
+    senderName,
+    senderPhone: phone,
+    recipientName: data.recipientName ?? "",
+    recipientPhone: data.recipientPhone ?? "",
+    pickupAddress: pickup.address,
+    dropoffAddress: dropoff.address,
+    packageDesc: data.packageDesc ?? "Package",
+    weightKg: data.weightKg ?? 0,
+    fragile: data.fragile === true,
+    deliveryType: data.deliveryType ?? "NORMAL",
+    fareTotal: fare.totalFare,
+    riderEarnings: fare.riderEarnings,
+    commission: fare.companyCommission,
+    paymentType: "online",
+    paymentStatus: "pending",
+    createdAt: new Date(),
+  })
 
   await notifyAdmin(`🛒 New order — awaiting payment\nOrder: ${orderNum} | Ref: ${orderRef}\nFare: ₦${fare.totalFare.toLocaleString()} | ${data.deliveryType ?? "NORMAL"}`)
 }
@@ -596,6 +617,26 @@ async function processCashPayment(phone: string, data: ConversationData) {
   }
 
   await dispatchAllRiders(phone, orderRef, data, fare, pickup, dropoff, "cash", senderName)
+  sendCustomerPdf(phone, {
+    orderRef,
+    orderNumber: orderNum,
+    senderName,
+    senderPhone: phone,
+    recipientName: data.recipientName ?? "",
+    recipientPhone: data.recipientPhone ?? "",
+    pickupAddress: pickup.address,
+    dropoffAddress: dropoff.address,
+    packageDesc: data.packageDesc ?? "Package",
+    weightKg: data.weightKg ?? 0,
+    fragile: data.fragile === true,
+    deliveryType: data.deliveryType ?? "NORMAL",
+    fareTotal: fare.totalFare,
+    riderEarnings: fare.riderEarnings,
+    commission: fare.companyCommission,
+    paymentType: "cash",
+    paymentStatus: "pending",
+    createdAt: new Date(),
+  })
   await notifyAdmin(`💵 New CASH order\nOrder: ${orderNum} | Ref: ${orderRef}\nFare: ₦${fare.totalFare.toLocaleString()} | ${data.deliveryType ?? "NORMAL"}`)
 }
 
@@ -616,6 +657,18 @@ async function notifyReceiver(
     `Your package will be delivered soon. You'll get updates when your rider is on the way.\n\n` +
     `*To track:* Reply with your tracking number: \`${orderRef}\`\n\nQuestions? Reply *hi*\n📞 +234 811 870 7226`
   )
+}
+
+function sendCustomerPdf(phone: string, pdfData: OrderPDFData) {
+  generateCustomerPDF(pdfData)
+    .then(b64 => sendDocumentBase64(
+      phone,
+      b64,
+      "application/pdf",
+      `LT-ShippingLabel-${pdfData.orderRef}.pdf`,
+      `Your shipping label & receipt for order ${pdfData.orderRef}`,
+    ))
+    .catch(e => console.error("[pdf] Customer PDF error:", e))
 }
 
 export { notifyReceiver }
