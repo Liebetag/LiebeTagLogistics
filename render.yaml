@@ -16,8 +16,13 @@ services:
         value: production
       - key: PORT
         value: "8000"
-
     disk:
       name: liebetaglogistics-data
       mountPath: /data
       sizeGB: 1
+
+  - type: static
+    name: liebetaglogistics-admin
+    rootDir: Web
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
