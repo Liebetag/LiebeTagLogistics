@@ -4,12 +4,12 @@ import { LayoutDashboard, Map, Package, ClipboardList, Users, LogOut, Truck, Use
 import clsx from "clsx"
 
 const links = [
-  { to: "/",        icon: LayoutDashboard, label: "Dashboard"  },
-  { to: "/map",     icon: Map,             label: "Live Map"   },
-  { to: "/orders",  icon: Package,         label: "Orders"     },
-  { to: "/errands", icon: ClipboardList,   label: "Errands"    },
-  { to: "/riders",  icon: Users,           label: "Riders"     },
-  { to: "/customers", icon: UserRound,     label: "Customers"  },
+  { to: "/admin",        icon: LayoutDashboard, label: "Dashboard"  },
+  { to: "/admin/map",     icon: Map,             label: "Live Map"   },
+  { to: "/admin/orders",  icon: Package,         label: "Orders"     },
+  { to: "/admin/errands", icon: ClipboardList,   label: "Errands"    },
+  { to: "/admin/riders",  icon: Users,           label: "Riders"     },
+  { to: "/admin/customers", icon: UserRound,     label: "Customers"  },
 ]
 
 export default function Sidebar() {
@@ -33,7 +33,7 @@ export default function Sidebar() {
 
       <nav className="flex-1 p-3 space-y-0.5">
         {links.map(({ to, icon: Icon, label }) => (
-          <NavLink key={to} to={to} end={to === "/"} className={({ isActive }) =>
+          <NavLink key={to} to={to} end={to === "/admin"} className={({ isActive }) =>
             clsx("flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
               isActive ? "bg-brand/15 text-brand font-medium" : "text-slate-400 hover:text-slate-100 hover:bg-dark-border/50")
           }>

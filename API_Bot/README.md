@@ -291,6 +291,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-05-14 | Add Render blueprint for API and admin |
 | 2026-05-09 | Fix TypeScript build errors |
 | 2026-05-09 | Fix WhatsApp PDF document delivery |
 | 2026-05-09 | Add rider location and admin allocation flow |
@@ -300,7 +301,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-04-04 | fix: fare display, paystack webhook, cash payment fallback |
 | 2026-04-04 | fix: remove WAITING_RIDER from LEGACY_DELIVERY_STATES |
 | 2026-04-04 | fix: stop AI latching onto stale/history addresses as dropoff |
-| 2026-04-04 | fix: resolve WAITING_RIDER lockout and Cantrack re-login loop |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*

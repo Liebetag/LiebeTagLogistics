@@ -267,3 +267,13 @@ model BikeAllocationRequest {
 
   @@map("bike_allocation_requests")
 }
+
+model PortalOtp {
+  phone     String   @id
+  codeHash  String
+  expiresAt DateTime
+  consumed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("portal_otps")
+}

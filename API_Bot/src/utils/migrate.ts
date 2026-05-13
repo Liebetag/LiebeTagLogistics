@@ -87,6 +87,13 @@ const TABLES = [
     requestedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     reviewedAt DATETIME, reviewedBy TEXT, note TEXT NOT NULL DEFAULT ''
   )`,
+  `CREATE TABLE IF NOT EXISTS portal_otps (
+    phone TEXT PRIMARY KEY,
+    codeHash TEXT NOT NULL,
+    expiresAt DATETIME NOT NULL,
+    consumed INTEGER NOT NULL DEFAULT 0,
+    createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
 ]
 
 export async function runMigrations() {

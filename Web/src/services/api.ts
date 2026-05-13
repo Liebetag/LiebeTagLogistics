@@ -30,6 +30,39 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return r.json() as T
 }
 
+async function publicPost<T>(path: string, body: unknown): Promise<T> {
+  const base = localStorage.getItem("lt_api_url") || "https://liebetaglogistics-api.onrender.com"
+  const r = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  const data = await r.json().catch(() => ({})) as any
+  if (!r.ok || data?.ok === false) throw new Error(data?.error || `${r.status} ${r.statusText}`)
+  return data as T
+}
+
+async function portalGet<T>(path: string, token: string): Promise<T> {
+  const base = localStorage.getItem("lt_api_url") || "https://liebetaglogistics-api.onrender.com"
+  const r = await fetch(`${base}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  return r.json() as T
+}
+
+async function portalPost<T>(path: string, token: string, body: unknown): Promise<T> {
+  const base = localStorage.getItem("lt_api_url") || "https://liebetaglogistics-api.onrender.com"
+  const r = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  })
+  const data = await r.json().catch(() => ({})) as any
+  if (!r.ok || data?.ok === false) throw new Error(data?.error || `${r.status} ${r.statusText}`)
+  return data as T
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface GPSTracker {
   deviceId:  string
@@ -140,4 +173,8 @@ export const api = {
   approveAllocation: (id: string) => post<{ ok: boolean; request: AllocationRequest }>(`/admin/allocation-requests/${id}/approve`, {}),
   rejectAllocation:  (id: string, note = "") => post<{ ok: boolean }>(`/admin/allocation-requests/${id}/reject`, { note }),
   unassignBike:      (phone: string) => post<{ ok: boolean }>(`/riders/${phone}/unassign-bike`, {}),
+  requestPortalOtp:  (phone: string) => publicPost<{ ok: boolean; phone: string }>("/portal/auth/request-otp", { phone }),
+  verifyPortalOtp:   (phone: string, code: string) => publicPost<{ ok: boolean; token: string }>("/portal/auth/verify-otp", { phone, code }),
+  portalMe:          (token: string) => portalGet<{ user: { phone: string; name: string } | null; orders: Order[]; errands: Errand[] }>("/portal/me", token),
+  portalChat:        (token: string, message: string) => portalPost<{ ok: boolean; state: string }>("/portal/chat", token, { message }),
 }

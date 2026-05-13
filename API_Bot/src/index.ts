@@ -18,6 +18,7 @@ import {
   rejectAllocationRequest,
   unassignBike,
 } from "./services/rider-ops.ts"
+import { requestPortalOtp, verifyPortalOtp, verifyPortalToken } from "./services/portal-auth.ts"
 import type { GPSLocation } from "./types/index.ts"
 
 const app = new Hono()
@@ -52,6 +53,14 @@ const requireApiKey = async (c: any, next: Function) => {
   return c.json({ error: "Unauthorized" }, 401)
 }
 
+const requirePortalAuth = async (c: any, next: Function) => {
+  const token = c.req.header("Authorization")?.replace("Bearer ", "") ?? ""
+  const phone = verifyPortalToken(token)
+  if (!phone) return c.json({ error: "Unauthorized" }, 401)
+  ;(c as any).portalPhone = phone
+  return next()
+}
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 app.get("/", async c => {
   const cached = cantrack.getAllCached()
@@ -65,6 +74,54 @@ app.get("/", async c => {
     gpsPolling:     cantrack.isPolling(),
     gpsLastOk:      cantrack.lastPollSuccess(),
   })
+})
+
+app.post("/portal/auth/request-otp", async c => {
+  try {
+    const body = await c.req.json() as { phone?: string }
+    const phone = await requestPortalOtp(body.phone ?? "")
+    return c.json({ ok: true, phone })
+  } catch (e: any) {
+    return c.json({ ok: false, error: e?.message ?? "Could not send OTP" }, 400)
+  }
+})
+
+app.post("/portal/auth/verify-otp", async c => {
+  try {
+    const body = await c.req.json() as { phone?: string; code?: string }
+    const token = await verifyPortalOtp(body.phone ?? "", body.code ?? "")
+    return c.json({ ok: true, token })
+  } catch (e: any) {
+    return c.json({ ok: false, error: e?.message ?? "Could not verify OTP" }, 400)
+  }
+})
+
+app.get("/portal/me", requirePortalAuth, async c => {
+  const phone = (c as any).portalPhone as string
+  const [user, orders, errands] = await Promise.all([
+    db.user.findUnique({ where: { phone } }),
+    db.order.findMany({
+      where: { OR: [{ senderPhone: phone }, { recipientPhone: phone }] },
+      orderBy: { createdAt: "desc" },
+      take: 25,
+    }),
+    db.errand.findMany({
+      where: { clientPhone: phone },
+      orderBy: { createdAt: "desc" },
+      take: 25,
+    }),
+  ])
+  return c.json({ user, orders, errands })
+})
+
+app.post("/portal/chat", requirePortalAuth, async c => {
+  const phone = (c as any).portalPhone as string
+  const body = await c.req.json() as { message?: string; location?: { lat: number; lng: number; address?: string } }
+  const message = String(body.message ?? "").trim()
+  if (!message) return c.json({ ok: false, error: "message required" }, 400)
+  await handleMessage(phone, message, body.location as any)
+  const conv = await db.conversation.findUnique({ where: { phone } })
+  return c.json({ ok: true, state: conv?.state ?? "IDLE" })
 })
 
 // ─── WhatsApp Webhook ─────────────────────────────────────────────────────────
