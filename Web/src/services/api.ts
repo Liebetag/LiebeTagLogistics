@@ -186,6 +186,12 @@ export interface AdminUser {
   lastLoginAt?: string
 }
 
+export interface PortalLocation {
+  lat: number
+  lng: number
+  address?: string
+}
+
 // ─── API calls ────────────────────────────────────────────────────────────────
 export const api = {
   adminLogin:   (phone: string, password: string) => publicAdminPost<{ ok: boolean; token: string; admin: AdminUser }>("/admin/auth/login", { phone, password }),
@@ -209,5 +215,6 @@ export const api = {
   requestPortalOtp:  (phone: string) => publicPost<{ ok: boolean; phone: string }>("/portal/auth/request-otp", { phone }),
   verifyPortalOtp:   (phone: string, code: string) => publicPost<{ ok: boolean; token: string }>("/portal/auth/verify-otp", { phone, code }),
   portalMe:          (token: string) => portalGet<{ user: { phone: string; name: string } | null; orders: Order[]; errands: Errand[] }>("/portal/me", token),
-  portalChat:        (token: string, message: string) => portalPost<{ ok: boolean; state: string }>("/portal/chat", token, { message }),
+  portalChat:        (token: string, message: string, location?: PortalLocation) =>
+    portalPost<{ ok: boolean; state: string }>("/portal/chat", token, { message, ...(location ? { location } : {}) }),
 }

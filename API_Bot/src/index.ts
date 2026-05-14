@@ -503,6 +503,7 @@ app.get("/order/:ref/photo", async c => {
   if (!buf) return c.text("Photo unavailable", 503)
 
   c.header("Content-Type", "image/jpeg")
+  c.header("Content-Disposition", `inline; filename="${ref}-pickup-photo.jpg"`)
   c.header("Cache-Control", "public, max-age=86400")
   return c.body(buf as unknown as ReadableStream)
 })

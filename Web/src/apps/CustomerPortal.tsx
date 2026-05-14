@@ -17,7 +17,7 @@ import {
 } from "lucide-react"
 import logoUrl from "../assets/liebetag-wordmark.svg"
 import riderImage from "../assets/liebetag-rider-brand-application.png"
-import { api, type Errand, type Order } from "../services/api.ts"
+import { api, type Errand, type Order, type PortalLocation } from "../services/api.ts"
 import StatusBadge from "../components/StatusBadge.tsx"
 
 type PortalData = {
@@ -67,6 +67,7 @@ export default function CustomerPortal() {
   const [request, setRequest] = useState<RequestForm>(emptyRequest)
   const [authOpen, setAuthOpen] = useState(false)
   const [quote, setQuote] = useState("")
+  const [pickupLocation, setPickupLocation] = useState<PortalLocation | null>(null)
 
   const apiBase = localStorage.getItem("lt_api_url") || "https://liebetaglogistics-api.onrender.com"
   const isSignedIn = Boolean(token && data)
@@ -154,6 +155,11 @@ export default function CustomerPortal() {
           pickupConfirmed: true,
           notes: [current.notes, `Pickup GPS accuracy: ${Math.round(accuracy)}m`].filter(Boolean).join("\n"),
         }))
+        setPickupLocation({
+          lat: latitude,
+          lng: longitude,
+          address: `Current location (${latitude.toFixed(6)}, ${longitude.toFixed(6)})`,
+        })
         setStatus("Pickup location captured. Confirm it is where the rider should collect from.")
       },
       () => setStatus("Location permission was not granted. Type the pickup address instead."),
@@ -191,8 +197,12 @@ export default function CustomerPortal() {
     setLoading(true)
     setStatus("")
     const serviceLabel = serviceOptions.find(s => s.id === request.service)?.label ?? "Delivery"
+    const intentLine = getPortalIntentLine(request.service, request.mode)
     const message = [
-      `Web ${serviceLabel} ${request.mode === "quote" ? "quote" : "booking"} request`,
+      intentLine,
+      "Source: web portal",
+      `Service: ${serviceLabel}`,
+      `Request type: ${request.mode === "quote" ? "quote" : "booking"}`,
       `Pickup: ${request.pickup}`,
       `Drop-off: ${request.dropoff}`,
       `Item: ${request.item}`,
@@ -202,10 +212,12 @@ export default function CustomerPortal() {
       request.recipientPhone ? `Recipient phone: ${request.recipientPhone}` : "",
       request.notes ? `Notes: ${request.notes}` : "",
     ].filter(Boolean).join("\n")
+    const location = request.pickupConfirmed && pickupLocation ? pickupLocation : undefined
 
     try {
-      await api.portalChat(token, message)
+      await api.portalChat(token, message, location)
       setRequest(emptyRequest)
+      setPickupLocation(null)
       await load(token)
       setStatus("Request submitted. Confirmation and next steps will arrive on WhatsApp.")
     } catch (e: any) {
@@ -356,7 +368,15 @@ export default function CustomerPortal() {
             <label className="space-y-1">
               <span className="label">Sender pickup address</span>
               <div className="flex gap-2">
-                <input className="input min-w-0 flex-1" value={request.pickup} onChange={e => setRequest({ ...request, pickup: e.target.value, pickupConfirmed: false })} placeholder="Share location or type address" />
+                <input
+                  className="input min-w-0 flex-1"
+                  value={request.pickup}
+                  onChange={e => {
+                    setRequest({ ...request, pickup: e.target.value, pickupConfirmed: false })
+                    setPickupLocation(null)
+                  }}
+                  placeholder="Share location or type address"
+                />
                 <button type="button" className="btn-ghost px-3" onClick={useCurrentLocation} title="Use current location">
                   <LocateFixed size={16} />
                 </button>
@@ -458,6 +478,13 @@ const serviceOptions: Array<{
   { id: "interstate", label: "Interstate", description: "Plan city-to-city dispatch requests as the network expands.", detail: "Prepare details for Abuja-to-city or city-to-Abuja shipments.", itemPlaceholder: "Package type, destination city, declared value", baseFare: 6000, icon: <Truck size={20} /> },
   { id: "international", label: "International", description: "Prepare future document and global shipment requests.", detail: "For future international document and parcel handling requests.", itemPlaceholder: "Document/parcel type, destination country", baseFare: 15000, icon: <Plane size={20} /> },
 ]
+
+function getPortalIntentLine(service: RequestForm["service"], mode: RequestForm["mode"]) {
+  if (service === "delivery") return mode === "book" ? "I want to book a delivery" : "I want a delivery quote"
+  if (service === "errand") return mode === "book" ? "I want to book an errand" : "I want an errand quote"
+  if (service === "interstate") return mode === "book" ? "I want to schedule an interstate shipment" : "I want an interstate shipment quote"
+  return mode === "book" ? "I want to schedule an international shipment" : "I want an international shipment quote"
+}
 
 const addressSuggestions = [
   "Wuse 2, Abuja",

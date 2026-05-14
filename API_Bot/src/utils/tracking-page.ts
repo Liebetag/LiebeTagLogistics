@@ -140,7 +140,10 @@ export function renderTrackingPage(order: OrderRecord): string {
   const photoHtml = photoUrl ? `
     <div class="card">
       <div class="card-title">📷 Pickup Photo</div>
-      <img src="${photoUrl}" alt="Package photo" style="width:100%;border-radius:8px;max-height:300px;object-fit:cover">
+      <a href="${photoUrl}" target="_blank" rel="noopener" class="photo-link" title="Open full package photo">
+        <img src="${photoUrl}" alt="Package photo" style="width:100%;border-radius:8px;max-height:300px;object-fit:cover">
+      </a>
+      <p style="margin:8px 0 0;font-size:12px;color:#64748b">Click the photo to open the full image.</p>
     </div>` : ""
 
   const senderName    = safe(order.senderName    ?? order.clientName)
@@ -187,6 +190,9 @@ export function renderTrackingPage(order: OrderRecord): string {
     .print-btn:active { opacity:.8 }
     .badge { display:inline-block; background:${color}22; color:${color};
              padding:2px 8px; border-radius:99px; font-size:12px; font-weight:700 }
+    .photo-link { display:block }
+    .photo-link img { display:block }
+    .photo-link:focus-visible { outline:3px solid #f59e0b; outline-offset:3px; border-radius:8px }
     @media print {
       .header, .print-btn { display:none }
       body { background:white }

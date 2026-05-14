@@ -291,6 +291,8 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-05-14 | Improve portal booking tracking handoff |
+| 2026-05-14 | Improve portal quote flow and logo |
 | 2026-05-14 | Add password admin access control |
 | 2026-05-14 | Use transparent Liebe Tag wordmark |
 | 2026-05-14 | Fix portal OTP feedback and login display |
@@ -299,8 +301,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-05-14 | Pin Prisma CLI for Render deploy |
 | 2026-05-14 | Redesign customer web portal |
 | 2026-05-14 | Add WhatsApp OTP web portal |
-| 2026-05-14 | Add Render blueprint for API and admin |
-| 2026-05-09 | Fix TypeScript build errors |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*
