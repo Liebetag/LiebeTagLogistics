@@ -300,18 +300,16 @@ export default function CustomerPortal() {
               </div>
             </>
           ) : (
-            <AuthPanel
-              phone={phone}
-              code={code}
-              step={step}
-              loading={loading}
-              status={authOpen ? status : ""}
-              onPhone={setPhone}
-              onCode={setCode}
-              onRequest={requestOtp}
-              onVerify={verifyOtp}
-              onChangeNumber={() => setStep("phone")}
-            />
+            <div>
+              <p className="label">Account access</p>
+              <h2 className="mt-1 font-display text-2xl font-bold">Plan freely. Sign in only when ready.</h2>
+              <p className="mt-3 text-sm leading-6 text-slate-600">
+                Track shipments, review services, and prepare a dispatch request without logging in. When you submit, we verify your WhatsApp number and attach the booking to the same customer record used by the bot.
+              </p>
+              <button className="btn-primary mt-5 w-full" onClick={() => setAuthOpen(true)}>
+                Sign in with WhatsApp OTP
+              </button>
+            </div>
           )}
         </aside>
       </section>

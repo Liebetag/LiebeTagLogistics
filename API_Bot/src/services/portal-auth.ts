@@ -50,7 +50,10 @@ export async function requestPortalOtp(rawPhone: string) {
     create: { phone, role: "customer" },
   }).catch(() => {})
 
-  await sendText(phone, `Your Liebe Tag web login code is *${code}*.\n\nIt expires in 10 minutes.`)
+  const sent = await sendText(phone, `Your Liebe Tag web login code is *${code}*.\n\nIt expires in 10 minutes.`)
+  if (!sent) {
+    throw new Error("Could not send WhatsApp code. Check the WhatsApp service connection and try again.")
+  }
   return phone
 }
 

@@ -291,6 +291,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-05-14 | Use bun x for Render Prisma commands |
 | 2026-05-14 | Make portal planning public |
 | 2026-05-14 | Pin Prisma CLI for Render deploy |
 | 2026-05-14 | Redesign customer web portal |
@@ -300,7 +301,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-05-09 | Fix WhatsApp PDF document delivery |
 | 2026-05-09 | Add rider location and admin allocation flow |
 | 2026-05-09 | Fix Cantrack GPS polling |
-| 2026-05-09 | feat: use Groq first for voice transcription |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*
