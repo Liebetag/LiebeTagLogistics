@@ -5,7 +5,7 @@ services:
     region: frankfurt
     plan: starter
     rootDir: API_Bot
-    buildCommand: npm install -g bun && bun install && bunx prisma generate && bunx prisma db push
+    buildCommand: npm install -g bun && bun install && bunx prisma@5.14.0 generate && bunx prisma@5.14.0 db push
     startCommand: bun src/index.ts
     envVars:
       - key: DATABASE_URL
