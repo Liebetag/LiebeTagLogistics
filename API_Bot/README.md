@@ -291,6 +291,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-05-14 | Make portal planning public |
 | 2026-05-14 | Pin Prisma CLI for Render deploy |
 | 2026-05-14 | Redesign customer web portal |
 | 2026-05-14 | Add WhatsApp OTP web portal |
@@ -300,7 +301,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-05-09 | Add rider location and admin allocation flow |
 | 2026-05-09 | Fix Cantrack GPS polling |
 | 2026-05-09 | feat: use Groq first for voice transcription |
-| 2026-04-09 | feat: PDF shipping label/receipt, photo OCR pickup confirm, cantrack fix |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*
