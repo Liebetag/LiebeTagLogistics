@@ -50,7 +50,7 @@ export const env = {
 
   // App
   APP_URL:          optional("APP_URL", "https://liebetaglogistics-api.onrender.com"),
-  ALLOWED_ORIGINS:  optional("ALLOWED_ORIGINS", "https://liebetag.com"),
+  ALLOWED_ORIGINS:  optional("ALLOWED_ORIGINS", "*"),
 
   // Operations
   ADMIN_PHONES:     optional("ADMIN_PHONES", "").split(",").filter(Boolean),

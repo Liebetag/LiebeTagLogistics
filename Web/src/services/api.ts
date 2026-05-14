@@ -31,11 +31,16 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 async function publicPost<T>(path: string, body: unknown): Promise<T> {
   const base = localStorage.getItem("lt_api_url") || "https://liebetaglogistics-api.onrender.com"
-  const r = await fetch(`${base}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
+  let r: Response
+  try {
+    r = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  } catch {
+    throw new Error(`Could not reach the Liebe Tag API at ${base}. Check API deployment, API URL, and CORS settings.`)
+  }
   const data = await r.json().catch(() => ({})) as any
   if (!r.ok || data?.ok === false) throw new Error(data?.error || `${r.status} ${r.statusText}`)
   return data as T

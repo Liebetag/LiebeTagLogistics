@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react"
 import {
   ArrowRight,
   Bike,
+  Calculator,
   ClipboardList,
   Globe2,
+  LocateFixed,
   LockKeyhole,
   LogOut,
   Package,
@@ -26,22 +28,30 @@ type PortalData = {
 
 type RequestForm = {
   service: "delivery" | "errand" | "interstate" | "international"
+  mode: "quote" | "book"
   pickup: string
   dropoff: string
   item: string
+  weight: string
+  schedule: string
   recipientName: string
   recipientPhone: string
   notes: string
+  pickupConfirmed: boolean
 }
 
 const emptyRequest: RequestForm = {
   service: "delivery",
+  mode: "quote",
   pickup: "",
   dropoff: "",
   item: "",
+  weight: "",
+  schedule: "",
   recipientName: "",
   recipientPhone: "",
   notes: "",
+  pickupConfirmed: false,
 }
 
 export default function CustomerPortal() {
@@ -56,6 +66,7 @@ export default function CustomerPortal() {
   const [trackingUrl, setTrackingUrl] = useState("")
   const [request, setRequest] = useState<RequestForm>(emptyRequest)
   const [authOpen, setAuthOpen] = useState(false)
+  const [quote, setQuote] = useState("")
 
   const apiBase = localStorage.getItem("lt_api_url") || "https://liebetaglogistics-api.onrender.com"
   const isSignedIn = Boolean(token && data)
@@ -128,6 +139,43 @@ export default function CustomerPortal() {
     setStatus("Tracking page ready. Open it to view live status, receipt, and label details.")
   }
 
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setStatus("Location sharing is not available on this browser.")
+      return
+    }
+    setStatus("Requesting location permission...")
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        const { latitude, longitude, accuracy } = position.coords
+        setRequest(current => ({
+          ...current,
+          pickup: `Current location (${latitude.toFixed(6)}, ${longitude.toFixed(6)})`,
+          pickupConfirmed: true,
+          notes: [current.notes, `Pickup GPS accuracy: ${Math.round(accuracy)}m`].filter(Boolean).join("\n"),
+        }))
+        setStatus("Pickup location captured. Confirm it is where the rider should collect from.")
+      },
+      () => setStatus("Location permission was not granted. Type the pickup address instead."),
+      { enableHighAccuracy: true, timeout: 15000 },
+    )
+  }
+
+  const estimateQuote = () => {
+    if (!request.pickup.trim() || !request.dropoff.trim()) {
+      setStatus("Enter pickup and receiver/drop-off address to get a quote.")
+      return
+    }
+    const service = serviceOptions.find(s => s.id === request.service)
+    const base = service?.baseFare ?? 2000
+    const weight = Number.parseFloat(request.weight || "1")
+    const weightCharge = Number.isFinite(weight) ? Math.max(0, Math.ceil(weight - 1) * 250) : 0
+    const urgency = request.schedule ? 0 : 500
+    const estimate = base + weightCharge + urgency
+    setQuote(`Estimated ${service?.label ?? "service"} fare: ₦${estimate.toLocaleString()}. Final fare may change after address confirmation.`)
+    setStatus("Quote prepared. Sign in only when you want to process the booking.")
+  }
+
   const submitRequest = async () => {
     if (!request.pickup.trim() || !request.dropoff.trim() || !request.item.trim()) {
       setStatus("Pickup, drop-off, and item details are required.")
@@ -144,10 +192,12 @@ export default function CustomerPortal() {
     setStatus("")
     const serviceLabel = serviceOptions.find(s => s.id === request.service)?.label ?? "Delivery"
     const message = [
-      `Web ${serviceLabel} request`,
+      `Web ${serviceLabel} ${request.mode === "quote" ? "quote" : "booking"} request`,
       `Pickup: ${request.pickup}`,
       `Drop-off: ${request.dropoff}`,
       `Item: ${request.item}`,
+      request.weight ? `Weight: ${request.weight}kg` : "",
+      request.schedule ? `Schedule: ${request.schedule}` : "",
       request.recipientName ? `Recipient: ${request.recipientName}` : "",
       request.recipientPhone ? `Recipient phone: ${request.recipientPhone}` : "",
       request.notes ? `Notes: ${request.notes}` : "",
@@ -271,18 +321,65 @@ export default function CustomerPortal() {
             </span>
           </div>
 
+          <div className="mb-5 grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1">
+            <button
+              className={`rounded-md px-3 py-2 text-sm font-semibold ${request.mode === "quote" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
+              onClick={() => setRequest({ ...request, mode: "quote" })}
+            >
+              Get quote
+            </button>
+            <button
+              className={`rounded-md px-3 py-2 text-sm font-semibold ${request.mode === "book" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
+              onClick={() => setRequest({ ...request, mode: "book" })}
+            >
+              Schedule booking
+            </button>
+          </div>
+
+          <div className="mb-5 rounded-lg border border-blue-100 bg-blue-50 p-4">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-brand text-slate-950">
+                {serviceOptions.find(s => s.id === request.service)?.icon}
+              </span>
+              <div>
+                <h3 className="font-display text-lg font-bold">{serviceOptions.find(s => s.id === request.service)?.label}</h3>
+                <p className="text-sm text-slate-600">{serviceOptions.find(s => s.id === request.service)?.detail}</p>
+              </div>
+            </div>
+          </div>
+
+          <datalist id="address-suggestions">
+            {addressSuggestions.map(address => <option value={address} key={address} />)}
+          </datalist>
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Pickup address" value={request.pickup} onChange={pickup => setRequest({ ...request, pickup })} placeholder="Area, landmark, full address" />
-            <Field label="Drop-off address" value={request.dropoff} onChange={dropoff => setRequest({ ...request, dropoff })} placeholder="Receiver location or destination" />
-            <Field label="Item details" value={request.item} onChange={item => setRequest({ ...request, item })} placeholder="Documents, food, package, etc." />
+            <label className="space-y-1">
+              <span className="label">Sender pickup address</span>
+              <div className="flex gap-2">
+                <input className="input min-w-0 flex-1" value={request.pickup} onChange={e => setRequest({ ...request, pickup: e.target.value, pickupConfirmed: false })} placeholder="Share location or type address" />
+                <button type="button" className="btn-ghost px-3" onClick={useCurrentLocation} title="Use current location">
+                  <LocateFixed size={16} />
+                </button>
+              </div>
+              {request.pickupConfirmed && <span className="text-xs font-semibold text-green-700">Current pickup location confirmed</span>}
+            </label>
+            <Field list="address-suggestions" label="Receiver/drop-off address" value={request.dropoff} onChange={dropoff => setRequest({ ...request, dropoff })} placeholder="Start typing: Wuse 2, Garki, Maitama..." />
+            <Field label={request.service === "errand" ? "Errand/task details" : "Item/package details"} value={request.item} onChange={item => setRequest({ ...request, item })} placeholder={serviceOptions.find(s => s.id === request.service)?.itemPlaceholder ?? "Documents, food, package, etc."} />
+            <Field label="Approx. weight (kg)" value={request.weight} onChange={weight => setRequest({ ...request, weight })} placeholder="1" />
             <Field label="Recipient phone" value={request.recipientPhone} onChange={recipientPhone => setRequest({ ...request, recipientPhone })} placeholder="080..." />
             <Field label="Recipient name" value={request.recipientName} onChange={recipientName => setRequest({ ...request, recipientName })} placeholder="Optional" />
+            {request.mode === "book" && <Field label="Schedule" value={request.schedule} onChange={schedule => setRequest({ ...request, schedule })} placeholder="Now, today 4pm, tomorrow morning" />}
             <Field label="Notes" value={request.notes} onChange={notes => setRequest({ ...request, notes })} placeholder="Fragile, deadline, payment preference" />
           </div>
 
+          {quote && <div className="mt-5 rounded-lg border border-brand/30 bg-brand/10 p-4 text-sm font-semibold text-slate-800">{quote}</div>}
+
           <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <button className="btn-primary flex items-center justify-center gap-2" onClick={estimateQuote} disabled={loading}>
+              <Calculator size={15} /> Get quote
+            </button>
             <button className="btn-blue flex items-center justify-center gap-2" onClick={submitRequest} disabled={loading}>
-              {isSignedIn ? "Submit request" : "Continue with WhatsApp OTP"} <ArrowRight size={15} />
+              {isSignedIn ? (request.mode === "quote" ? "Send quote request" : "Book dispatch") : "Continue with WhatsApp OTP"} <ArrowRight size={15} />
             </button>
             <p className="text-sm text-slate-500">WhatsApp remains the confirmation and support channel.</p>
           </div>
@@ -347,11 +444,36 @@ export default function CustomerPortal() {
   )
 }
 
-const serviceOptions: Array<{ id: RequestForm["service"]; label: string; description: string; icon: React.ReactNode }> = [
-  { id: "delivery", label: "Local delivery", description: "Bike dispatch across Abuja with live status and proof of delivery.", icon: <Package size={20} /> },
-  { id: "errand", label: "Errands", description: "Pickup, purchase, queue, document run, and assisted tasks.", icon: <Bike size={20} /> },
-  { id: "interstate", label: "Interstate", description: "Plan city-to-city dispatch requests as the network expands.", icon: <Truck size={20} /> },
-  { id: "international", label: "International", description: "Prepare future document and global shipment requests.", icon: <Plane size={20} /> },
+const serviceOptions: Array<{
+  id: RequestForm["service"]
+  label: string
+  description: string
+  detail: string
+  itemPlaceholder: string
+  baseFare: number
+  icon: React.ReactNode
+}> = [
+  { id: "delivery", label: "Local delivery", description: "Bike dispatch across Abuja with live status and proof of delivery.", detail: "Best for same-city packages, documents, food, and urgent item movement.", itemPlaceholder: "Documents, food, small parcel, etc.", baseFare: 2000, icon: <Package size={20} /> },
+  { id: "errand", label: "Errands", description: "Pickup, purchase, queue, document run, and assisted tasks.", detail: "Tell us what the rider should buy, pick up, submit, or handle for you.", itemPlaceholder: "Pick up food, buy item, queue, submit document...", baseFare: 2500, icon: <Bike size={20} /> },
+  { id: "interstate", label: "Interstate", description: "Plan city-to-city dispatch requests as the network expands.", detail: "Prepare details for Abuja-to-city or city-to-Abuja shipments.", itemPlaceholder: "Package type, destination city, declared value", baseFare: 6000, icon: <Truck size={20} /> },
+  { id: "international", label: "International", description: "Prepare future document and global shipment requests.", detail: "For future international document and parcel handling requests.", itemPlaceholder: "Document/parcel type, destination country", baseFare: 15000, icon: <Plane size={20} /> },
+]
+
+const addressSuggestions = [
+  "Wuse 2, Abuja",
+  "Garki Area 11, Abuja",
+  "Maitama, Abuja",
+  "Gwarinpa, Abuja",
+  "Jabi, Abuja",
+  "Utako, Abuja",
+  "Asokoro, Abuja",
+  "Central Business District, Abuja",
+  "Apo, Abuja",
+  "Lugbe, Abuja",
+  "Lokogoma, Abuja",
+  "Kubwa, Abuja",
+  "Life Camp, Abuja",
+  "Mabushi, Abuja",
 ]
 
 function BrandLogo() {
@@ -432,11 +554,11 @@ function Metric({ label, value }: { label: string; value: number }) {
   )
 }
 
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder: string }) {
+function Field({ label, value, onChange, placeholder, list }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; list?: string }) {
   return (
     <label className="space-y-1">
       <span className="label">{label}</span>
-      <input className="input w-full" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
+      <input className="input w-full" list={list} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
     </label>
   )
 }

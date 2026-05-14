@@ -291,6 +291,7 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 
 | Date | Change |
 |------|--------|
+| 2026-05-14 | Add password admin access control |
 | 2026-05-14 | Use transparent Liebe Tag wordmark |
 | 2026-05-14 | Fix portal OTP feedback and login display |
 | 2026-05-14 | Use bun x for Render Prisma commands |
@@ -300,7 +301,6 @@ Migrations run automatically on startup via `runMigrations()` in `src/utils/migr
 | 2026-05-14 | Add WhatsApp OTP web portal |
 | 2026-05-14 | Add Render blueprint for API and admin |
 | 2026-05-09 | Fix TypeScript build errors |
-| 2026-05-09 | Fix WhatsApp PDF document delivery |
 ---
 
 *Liebe Tag Logistics · info@liebetag.com · +234 811 870 7226*
