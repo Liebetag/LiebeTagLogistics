@@ -4,10 +4,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: { DEFAULT: "#E8B84B", dark: "#C9962E", light: "#FBE79A" },
-        dark:  { DEFAULT: "#0F172A", card: "#1E293B", border: "#334155" },
+        brand: { DEFAULT: "#FFCC00", dark: "#D9AA00", light: "#FFE680", blue: "#0066FF" },
+        dark:  { DEFAULT: "#0B0F19", card: "#111827", border: "#273244" },
       },
-      fontFamily: { sans: ["Inter","system-ui","sans-serif"] },
+      fontFamily: {
+        sans: ["Inter","system-ui","sans-serif"],
+        display: ["Montserrat","Inter","system-ui","sans-serif"],
+      },
     },
   },
   plugins: [],
