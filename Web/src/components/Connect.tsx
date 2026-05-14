@@ -3,7 +3,7 @@
 
 import { useState } from "react"
 import { LockKeyhole, ShieldCheck, Truck } from "lucide-react"
-import logoUrl from "../assets/liebetag-logo-guidelines.png"
+import logoUrl from "../assets/liebetag-wordmark.svg"
 import riderImage from "../assets/liebetag-rider-brand-application.png"
 
 interface Props { onConnect: () => void }
@@ -37,7 +37,9 @@ export default function Connect({ onConnect }: Props) {
 
       <div className="relative mx-auto grid min-h-screen max-w-6xl grid-cols-1 items-center gap-8 px-4 py-8 lg:grid-cols-[1fr_0.9fr]">
         <section className="max-w-2xl">
-          <img src={logoUrl} alt="Liebe Tag Logistics" className="mb-8 h-16 w-36 rounded object-cover object-left" />
+          <div className="mb-8 inline-flex rounded-lg bg-white px-4 py-3 shadow-sm">
+            <img src={logoUrl} alt="Liebe Tag Logistics" className="h-12 w-auto" />
+          </div>
           <p className="mb-4 inline-flex rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-sm font-semibold text-brand">
             Operations portal
           </p>

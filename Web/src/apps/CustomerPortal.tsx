@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   Truck,
 } from "lucide-react"
-import logoUrl from "../assets/liebetag-logo-guidelines.png"
+import logoUrl from "../assets/liebetag-wordmark.svg"
 import riderImage from "../assets/liebetag-rider-brand-application.png"
 import { api, type Errand, type Order } from "../services/api.ts"
 import StatusBadge from "../components/StatusBadge.tsx"
@@ -356,8 +356,8 @@ const serviceOptions: Array<{ id: RequestForm["service"]; label: string; descrip
 
 function BrandLogo() {
   return (
-    <div className="flex items-center gap-3">
-      <img src={logoUrl} alt="Liebe Tag Logistics" className="h-12 w-24 rounded object-cover object-left" />
+    <div className="flex items-center">
+      <img src={logoUrl} alt="Liebe Tag Logistics" className="h-10 w-auto" />
     </div>
   )
 }
