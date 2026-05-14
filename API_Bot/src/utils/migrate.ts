@@ -94,6 +94,18 @@ const TABLES = [
     consumed INTEGER NOT NULL DEFAULT 0,
     createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS admin_users (
+    id TEXT PRIMARY KEY,
+    phone TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'admin',
+    passwordHash TEXT NOT NULL,
+    permissions TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'active',
+    createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    createdBy TEXT NOT NULL DEFAULT '',
+    lastLoginAt DATETIME
+  )`,
 ]
 
 export async function runMigrations() {

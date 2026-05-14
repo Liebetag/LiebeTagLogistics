@@ -8,14 +8,15 @@ import Orders from "../pages/Orders.tsx"
 import Errands from "../pages/Errands.tsx"
 import Riders from "../pages/Riders.tsx"
 import Customers from "../pages/Customers.tsx"
+import AdminUsers from "../pages/AdminUsers.tsx"
 
 export default function AdminApp() {
   const [connected, setConnected] = useState(false)
 
   useEffect(() => {
     const url = localStorage.getItem("lt_api_url")
-    const key = localStorage.getItem("lt_api_key")
-    if (url && key) setConnected(true)
+    const token = localStorage.getItem("lt_admin_token")
+    if (url && token) setConnected(true)
   }, [])
 
   if (!connected) return <Connect onConnect={() => setConnected(true)} />
@@ -31,6 +32,7 @@ export default function AdminApp() {
           <Route path="/admin/errands" element={<Errands />} />
           <Route path="/admin/riders" element={<Riders />} />
           <Route path="/admin/customers" element={<Customers />} />
+          <Route path="/admin/admins" element={<AdminUsers />} />
         </Routes>
       </main>
     </div>

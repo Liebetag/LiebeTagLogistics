@@ -277,3 +277,18 @@ model PortalOtp {
 
   @@map("portal_otps")
 }
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  phone        String    @unique
+  name         String    @default("")
+  role         String    @default("admin")
+  passwordHash String
+  permissions  String    @default("{}")
+  status       String    @default("active")
+  createdAt    DateTime  @default(now())
+  createdBy    String    @default("")
+  lastLoginAt  DateTime?
+
+  @@map("admin_users")
+}

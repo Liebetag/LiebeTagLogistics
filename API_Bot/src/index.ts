@@ -19,6 +19,7 @@ import {
   unassignBike,
 } from "./services/rider-ops.ts"
 import { requestPortalOtp, verifyPortalOtp, verifyPortalToken } from "./services/portal-auth.ts"
+import { createAdmin, ensureSuperAdmin, listAdmins, loginAdmin, verifyAdminToken } from "./services/admin-auth.ts"
 import type { GPSLocation } from "./types/index.ts"
 
 const app = new Hono()
@@ -51,6 +52,29 @@ const requireApiKey = async (c: any, next: Function) => {
   const key = c.req.header("X-API-Key") || c.req.header("Authorization")?.replace("Bearer ","")
   if (!env.API_KEY || key === env.API_KEY) return next()
   return c.json({ error: "Unauthorized" }, 401)
+}
+
+const requireAdminAuth = async (c: any, next: Function) => {
+  const token = c.req.header("Authorization")?.replace("Bearer ", "") ?? ""
+  const admin = await verifyAdminToken(token)
+  if (admin) {
+    ;(c as any).admin = admin
+    return next()
+  }
+
+  const key = c.req.header("X-API-Key")
+  if (env.API_KEY && key === env.API_KEY) {
+    ;(c as any).admin = { id: "api-key", phone: "", name: "API Key", role: "super_admin", permissions: { all: true } }
+    return next()
+  }
+
+  return c.json({ error: "Unauthorized" }, 401)
+}
+
+const requireSuperAdmin = async (c: any, next: Function) => {
+  const admin = (c as any).admin
+  if (admin?.role === "super_admin" || admin?.permissions?.all) return next()
+  return c.json({ error: "Super admin access required" }, 403)
 }
 
 const requirePortalAuth = async (c: any, next: Function) => {
@@ -122,6 +146,43 @@ app.post("/portal/chat", requirePortalAuth, async c => {
   await handleMessage(phone, message, body.location as any)
   const conv = await db.conversation.findUnique({ where: { phone } })
   return c.json({ ok: true, state: conv?.state ?? "IDLE" })
+})
+
+app.post("/admin/auth/login", async c => {
+  try {
+    const body = await c.req.json() as { phone?: string; password?: string }
+    const result = await loginAdmin(body.phone ?? "", body.password ?? "")
+    return c.json({ ok: true, ...result })
+  } catch (e: any) {
+    return c.json({ ok: false, error: e?.message ?? "Could not sign in" }, 401)
+  }
+})
+
+app.get("/admin/me", requireAdminAuth, async c => {
+  await ensureSuperAdmin()
+  return c.json({ admin: (c as any).admin })
+})
+
+app.get("/admin/users", requireAdminAuth, requireSuperAdmin, async c => {
+  return c.json({ admins: await listAdmins() })
+})
+
+app.post("/admin/users", requireAdminAuth, requireSuperAdmin, async c => {
+  try {
+    const body = await c.req.json() as { phone?: string; name?: string; password?: string; role?: any; permissions?: Record<string, boolean> }
+    const admin = (c as any).admin
+    const created = await createAdmin({
+      phone: body.phone ?? "",
+      name: body.name ?? "",
+      password: body.password ?? "",
+      role: body.role ?? "operations",
+      permissions: body.permissions ?? {},
+      createdBy: admin.phone || admin.id,
+    })
+    return c.json({ ok: true, admin: created })
+  } catch (e: any) {
+    return c.json({ ok: false, error: e?.message ?? "Could not create admin" }, 400)
+  }
 })
 
 // ─── WhatsApp Webhook ─────────────────────────────────────────────────────────
@@ -211,7 +272,7 @@ app.post("/payments/webhook", async c => {
 })
 
 // ─── GPS — REST ───────────────────────────────────────────────────────────────
-app.get("/trackers/live", requireApiKey, async c => {
+app.get("/trackers/live", requireAdminAuth, async c => {
   // Serve from cache (background poller keeps it warm)
   const cached = cantrack.getAllCached()
   if (cached.length > 0) return c.json({ count: cached.length, trackers: cached })
@@ -220,7 +281,7 @@ app.get("/trackers/live", requireApiKey, async c => {
   return c.json({ count: locs.length, trackers: locs })
 })
 
-app.get("/location/:deviceId", requireApiKey, async c => {
+app.get("/location/:deviceId", requireAdminAuth, async c => {
   const { deviceId } = c.req.param()
   const loc = await cantrack.fetchOne(deviceId)
   if (!loc) return c.json({ error: "No location available", deviceId }, 404)
@@ -255,7 +316,7 @@ app.get("/ws/trackers", upgradeWebSocket(c => {
 }))
 
 // ─── Admin — refresh Cantrack session cookies ─────────────────────────────────
-app.post("/admin/cantrack/session", requireApiKey, async c => {
+app.post("/admin/cantrack/session", requireAdminAuth, async c => {
   const { session, seckey, bmap } = await c.req.json() as Record<string, string>
   if (!session) return c.json({ error: "session required" }, 400)
   cantrack.updateCookies(session, seckey, bmap)
@@ -264,7 +325,7 @@ app.post("/admin/cantrack/session", requireApiKey, async c => {
   return c.json({ ok: true, trackersFound: locs.length })
 })
 
-app.get("/admin/overview", requireApiKey, async c => {
+app.get("/admin/overview", requireAdminAuth, async c => {
   const [orders, errands, riders, customers, allocationRequests] = await Promise.all([
     db.order.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
     db.errand.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
@@ -281,13 +342,13 @@ app.get("/admin/overview", requireApiKey, async c => {
   return c.json({ orders, errands, riders, customers, allocationRequests, bikes })
 })
 
-app.get("/admin/allocation-requests", requireApiKey, async c => {
+app.get("/admin/allocation-requests", requireAdminAuth, async c => {
   const status = c.req.query("status") ?? ""
   const requests = await listAllocationRequests(status)
   return c.json({ count: requests.length, requests })
 })
 
-app.post("/admin/allocation-requests/:id/approve", requireApiKey, async c => {
+app.post("/admin/allocation-requests/:id/approve", requireAdminAuth, async c => {
   const id = c.req.param("id")
   const reviewedBy = c.req.header("X-Admin-Phone") ?? "admin"
   const result = await approveAllocationRequest(id, reviewedBy)
@@ -295,7 +356,7 @@ app.post("/admin/allocation-requests/:id/approve", requireApiKey, async c => {
   return c.json({ ok: true, request: result })
 })
 
-app.post("/admin/allocation-requests/:id/reject", requireApiKey, async c => {
+app.post("/admin/allocation-requests/:id/reject", requireAdminAuth, async c => {
   const id = c.req.param("id")
   const body = await c.req.json().catch(() => ({})) as { note?: string }
   const reviewedBy = c.req.header("X-Admin-Phone") ?? "admin"
@@ -304,7 +365,7 @@ app.post("/admin/allocation-requests/:id/reject", requireApiKey, async c => {
 })
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
-app.get("/orders/search", requireApiKey, async c => {
+app.get("/orders/search", requireAdminAuth, async c => {
   const q      = c.req.query("q") ?? ""
   const limit  = parseInt(c.req.query("limit") ?? "20")
   const orders = await db.order.findMany({
@@ -320,7 +381,7 @@ app.get("/orders/search", requireApiKey, async c => {
   return c.json({ count: orders.length, orders })
 })
 
-app.get("/orders/:ref", requireApiKey, async c => {
+app.get("/orders/:ref", requireAdminAuth, async c => {
   const ref   = c.req.param("ref")
   const order = await db.order.findFirst({
     where: { OR: [{ orderRef: ref }, { orderNumber: ref }] }
@@ -329,7 +390,7 @@ app.get("/orders/:ref", requireApiKey, async c => {
   return c.json(order)
 })
 
-app.get("/customers/search", requireApiKey, async c => {
+app.get("/customers/search", requireAdminAuth, async c => {
   const q = c.req.query("q") ?? ""
   const customers = await db.user.findMany({
     where: {
@@ -346,7 +407,7 @@ app.get("/customers/search", requireApiKey, async c => {
 })
 
 // ─── Errands ──────────────────────────────────────────────────────────────────
-app.get("/errands/search", requireApiKey, async c => {
+app.get("/errands/search", requireAdminAuth, async c => {
   const q       = c.req.query("q") ?? ""
   const errands = await db.errand.findMany({
     where: { OR: [
@@ -361,12 +422,12 @@ app.get("/errands/search", requireApiKey, async c => {
 })
 
 // ─── Riders ───────────────────────────────────────────────────────────────────
-app.get("/riders", requireApiKey, async c => {
+app.get("/riders", requireAdminAuth, async c => {
   const riders = await db.rider.findMany({ orderBy: { createdAt: "desc" } })
   return c.json({ count: riders.length, riders })
 })
 
-app.get("/riders/:phone/balance", requireApiKey, async c => {
+app.get("/riders/:phone/balance", requireAdminAuth, async c => {
   const { phone } = c.req.param()
   const rider     = await db.rider.findUnique({ where: { phone } })
   if (!rider) return c.json({ error: "Rider not found" }, 404)
@@ -374,7 +435,7 @@ app.get("/riders/:phone/balance", requireApiKey, async c => {
   return c.json({ ...rider, recentTrips: entries })
 })
 
-app.post("/riders/:phone/unassign-bike", requireApiKey, async c => {
+app.post("/riders/:phone/unassign-bike", requireAdminAuth, async c => {
   const { phone } = c.req.param()
   await unassignBike(phone)
   return c.json({ ok: true })

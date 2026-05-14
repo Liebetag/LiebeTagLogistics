@@ -19,6 +19,9 @@ export const env = {
   // Auth
   API_KEY:          optional("BOOTSTRAP_API_KEY", ""),
   JWT_SECRET:       optional("JWT_SECRET", "secret"),
+  SUPER_ADMIN_PHONE: optional("SUPER_ADMIN_PHONE", ""),
+  SUPER_ADMIN_NAME:  optional("SUPER_ADMIN_NAME", "Super Admin"),
+  SUPER_ADMIN_PASSWORD: optional("SUPER_ADMIN_PASSWORD", ""),
 
   // WhatsApp
   EVOLUTION_URL:    optional("EVOLUTION_API_URL", "").replace(/\/$/, ""),

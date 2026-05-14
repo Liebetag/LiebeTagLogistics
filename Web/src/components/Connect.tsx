@@ -1,16 +1,18 @@
 // src/components/Connect.tsx
-// First-launch admin connection screen
+// Admin password login screen
 
 import { useState } from "react"
 import { LockKeyhole, ShieldCheck, Truck } from "lucide-react"
 import logoUrl from "../assets/liebetag-wordmark.svg"
 import riderImage from "../assets/liebetag-rider-brand-application.png"
+import { api } from "../services/api.ts"
 
 interface Props { onConnect: () => void }
 
 export default function Connect({ onConnect }: Props) {
   const [url, setUrl] = useState(localStorage.getItem("lt_api_url") || "https://liebetaglogistics-api.onrender.com")
-  const [key, setKey] = useState(localStorage.getItem("lt_api_key") || "")
+  const [phone, setPhone] = useState("")
+  const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -18,13 +20,14 @@ export default function Connect({ onConnect }: Props) {
     setLoading(true)
     setError("")
     try {
-      const r = await fetch(`${url}/`, { headers: { "X-API-Key": key } })
-      if (!r.ok) throw new Error(`${r.status} - check your API key`)
       localStorage.setItem("lt_api_url", url)
-      localStorage.setItem("lt_api_key", key)
+      const result = await api.adminLogin(phone, password)
+      localStorage.setItem("lt_admin_token", result.token)
+      localStorage.setItem("lt_admin_user", JSON.stringify(result.admin))
+      localStorage.removeItem("lt_api_key")
       onConnect()
     } catch (e: any) {
-      setError(e.message || "Could not connect")
+      setError(e.message || "Could not sign in")
     } finally {
       setLoading(false)
     }
@@ -41,13 +44,13 @@ export default function Connect({ onConnect }: Props) {
             <img src={logoUrl} alt="Liebe Tag Logistics" className="h-12 w-auto" />
           </div>
           <p className="mb-4 inline-flex rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-sm font-semibold text-brand">
-            Operations portal
+            Super admin protected
           </p>
           <h1 className="font-display text-4xl font-extrabold leading-tight md:text-5xl">
-            Manage dispatch, riders, trackers, customers, and allocation requests.
+            Sign in to manage dispatch, riders, customers, and admin access.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-slate-300">
-            Connect the admin dashboard to the Liebe Tag API to monitor the same live database used by WhatsApp and the web portal.
+            The super admin can create admin accounts and define access rules. The API key is no longer used as the dashboard login.
           </p>
           <div className="mt-8 grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-white/10 bg-white/5 p-4">
@@ -56,7 +59,7 @@ export default function Connect({ onConnect }: Props) {
             </div>
             <div className="rounded-lg border border-white/10 bg-white/5 p-4">
               <ShieldCheck size={18} className="text-brand" />
-              <p className="mt-2 text-sm font-semibold">Protected API access</p>
+              <p className="mt-2 text-sm font-semibold">Role-based admin access</p>
             </div>
           </div>
         </section>
@@ -65,8 +68,8 @@ export default function Connect({ onConnect }: Props) {
           <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-md bg-brand text-slate-950">
             <LockKeyhole size={22} />
           </div>
-          <h2 className="font-display text-2xl font-bold">Admin connection</h2>
-          <p className="mt-1 text-sm text-slate-500">Enter the API endpoint and admin key for this browser.</p>
+          <h2 className="font-display text-2xl font-bold">Admin sign in</h2>
+          <p className="mt-1 text-sm text-slate-500">Use your admin phone number and password.</p>
 
           <div className="mt-6 space-y-4">
             <div>
@@ -75,13 +78,18 @@ export default function Connect({ onConnect }: Props) {
                 placeholder="https://liebetaglogistics-api.onrender.com" />
             </div>
             <div>
-              <label className="label mb-1 block">API Key</label>
-              <input className="input w-full" type="password" value={key} onChange={e => setKey(e.target.value)}
-                placeholder="llt_..." />
+              <label className="label mb-1 block">Admin phone</label>
+              <input className="input w-full" value={phone} onChange={e => setPhone(e.target.value)}
+                placeholder="08012345678" />
+            </div>
+            <div>
+              <label className="label mb-1 block">Password</label>
+              <input className="input w-full" type="password" value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="Enter password" onKeyDown={e => e.key === "Enter" && connect()} />
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <button className="btn-primary w-full py-2.5" onClick={connect} disabled={loading}>
-              {loading ? "Connecting..." : "Connect to dashboard"}
+              {loading ? "Signing in..." : "Sign in"}
             </button>
           </div>
         </section>

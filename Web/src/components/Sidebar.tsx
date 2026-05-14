@@ -1,6 +1,6 @@
 // src/components/Sidebar.tsx
 import { NavLink } from "react-router-dom"
-import { LayoutDashboard, Map, Package, ClipboardList, Users, LogOut, Truck, UserRound } from "lucide-react"
+import { LayoutDashboard, Map, Package, ClipboardList, Users, LogOut, Truck, UserRound, ShieldCheck } from "lucide-react"
 import clsx from "clsx"
 
 const links = [
@@ -10,12 +10,15 @@ const links = [
   { to: "/admin/errands", icon: ClipboardList,   label: "Errands"    },
   { to: "/admin/riders",  icon: Users,           label: "Riders"     },
   { to: "/admin/customers", icon: UserRound,     label: "Customers"  },
+  { to: "/admin/admins",  icon: ShieldCheck,     label: "Admins"     },
 ]
 
 export default function Sidebar() {
   const disconnect = () => {
     localStorage.removeItem("lt_api_url")
     localStorage.removeItem("lt_api_key")
+    localStorage.removeItem("lt_admin_token")
+    localStorage.removeItem("lt_admin_user")
     window.location.reload()
   }
 

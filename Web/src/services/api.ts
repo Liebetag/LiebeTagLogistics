@@ -1,13 +1,12 @@
 // src/services/api.ts
 // API client for Liebe Tag Logistics backend
 
-const BASE_URL = localStorage.getItem("lt_api_url") || ""
-const API_KEY  = localStorage.getItem("lt_api_key") || ""
-
 function headers(extraHeaders?: Record<string, string>) {
+  const token = localStorage.getItem("lt_admin_token") || ""
   return {
     "Content-Type": "application/json",
     "X-API-Key":    localStorage.getItem("lt_api_key") || "",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...extraHeaders,
   }
 }
@@ -31,6 +30,18 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function publicPost<T>(path: string, body: unknown): Promise<T> {
+  const base = localStorage.getItem("lt_api_url") || "https://liebetaglogistics-api.onrender.com"
+  const r = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  const data = await r.json().catch(() => ({})) as any
+  if (!r.ok || data?.ok === false) throw new Error(data?.error || `${r.status} ${r.statusText}`)
+  return data as T
+}
+
+async function publicAdminPost<T>(path: string, body: unknown): Promise<T> {
   const base = localStorage.getItem("lt_api_url") || "https://liebetaglogistics-api.onrender.com"
   const r = await fetch(`${base}${path}`, {
     method: "POST",
@@ -158,8 +169,25 @@ export interface DashboardStats {
   gpsLive:       number
 }
 
+export interface AdminUser {
+  id: string
+  phone: string
+  name: string
+  role: "super_admin" | "admin" | "operations" | "viewer"
+  permissions: Record<string, boolean>
+  status: "active" | "disabled"
+  createdAt: string
+  createdBy: string
+  lastLoginAt?: string
+}
+
 // ─── API calls ────────────────────────────────────────────────────────────────
 export const api = {
+  adminLogin:   (phone: string, password: string) => publicAdminPost<{ ok: boolean; token: string; admin: AdminUser }>("/admin/auth/login", { phone, password }),
+  adminMe:      () => get<{ admin: AdminUser }>("/admin/me"),
+  adminUsers:   () => get<{ admins: AdminUser[] }>("/admin/users"),
+  createAdmin:  (body: { phone: string; name: string; password: string; role: AdminUser["role"]; permissions: Record<string, boolean> }) =>
+    post<{ ok: boolean; admin: AdminUser }>("/admin/users", body),
   health:       () => get<DashboardStats>("/"),
   liveTrackers: () => get<{ count: number; trackers: GPSTracker[] }>("/trackers/live"),
   tracker:      (id: string) => get<GPSTracker>(`/location/${id}`),
